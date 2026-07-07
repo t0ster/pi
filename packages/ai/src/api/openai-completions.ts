@@ -18,6 +18,8 @@ import type {
 	ChatTemplateKwargValue,
 	Context,
 	ImageContent,
+	JsonTool,
+	JsonToolCall,
 	Message,
 	Model,
 	OpenAICompletionsCompat,
@@ -34,6 +36,7 @@ import type {
 	ToolCall,
 	ToolResultMessage,
 } from "../types.ts";
+import { requireJsonToolCall, requireJsonTools } from "../types.ts";
 import { formatProviderError, normalizeProviderError } from "../utils/error-body.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { shortHash } from "../utils/hash.ts";
@@ -255,7 +258,7 @@ export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptio
 			await options?.onResponse?.({ status: response.status, headers: headersToRecord(response.headers) }, model);
 			stream.push({ type: "start", partial: output });
 
-			interface StreamingToolCallBlock extends ToolCall {
+			interface StreamingToolCallBlock extends JsonToolCall {
 				partialArgs?: string;
 				customInput?: {
 					property: string;
@@ -395,6 +398,7 @@ export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptio
 						type: "toolCall",
 						id: toolCall.id || "",
 						name,
+						inputType: "json",
 						arguments: hasCustomInput ? { [customInputProperty]: "" } : {},
 						partialArgs: hasCustomInput ? undefined : "",
 						customInput: hasCustomInput
@@ -729,7 +733,8 @@ function buildParams(
 		compat.deferredToolsMode === "kimi" ? getDeferredToolNames(context.messages) : new Set<string>();
 	const activeTools = context.tools?.filter((tool) => !deferredToolNames.has(tool.name));
 	if (activeTools && activeTools.length > 0) {
-		params.tools = convertTools(activeTools, compat);
+		const jsonTools = requireJsonTools(activeTools, "OpenAI Completions") ?? [];
+		params.tools = convertTools(jsonTools, compat);
 		if (compat.zaiToolStream) {
 			(params as any).tool_stream = true;
 		}
@@ -1184,7 +1189,9 @@ export function convertMessages(
 				assistantMsg.content = assistantText;
 			}
 
-			const toolCalls = msg.content.filter(isToolCallBlock);
+			const toolCalls = msg.content
+				.filter(isToolCallBlock)
+				.map((tc) => requireJsonToolCall(tc, "OpenAI Completions replay"));
 			if (toolCalls.length > 0) {
 				assistantMsg.tool_calls = toolCalls.map((tc): ChatCompletionMessageToolCall => {
 					const customInputProperty = options?.grammarToolInputProperties?.get(tc.name);
@@ -1318,9 +1325,10 @@ export function convertMessages(
 			if (deferredToolNames.size > 0) {
 				const deferredTools = getToolsByName(context.tools, deferredToolNames);
 				if (deferredTools.length > 0) {
+					const jsonTools = requireJsonTools(deferredTools, "OpenAI Completions") ?? [];
 					const kimiToolMessage: KimiToolSystemMessageParam = {
 						role: "system",
-						tools: convertTools(deferredTools, compat),
+						tools: convertTools(jsonTools, compat),
 					};
 					// Kimi accepts a system message with tools but omits the standard content field.
 					params.push(kimiToolMessage as unknown as ChatCompletionMessageParam);
@@ -1336,7 +1344,7 @@ export function convertMessages(
 }
 
 function convertTools(
-	tools: Tool[],
+	tools: JsonTool[],
 	compat: ResolvedOpenAICompletionsCompat,
 ): OpenAI.Chat.Completions.ChatCompletionTool[] {
 	return tools.map((tool) => {

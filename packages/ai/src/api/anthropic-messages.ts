@@ -15,6 +15,8 @@ import type {
 	CacheRetention,
 	Context,
 	ImageContent,
+	JsonTool,
+	JsonToolCall,
 	Message,
 	Model,
 	ProviderEnv,
@@ -26,10 +28,10 @@ import type {
 	TextContent,
 	ThinkingContent,
 	Tool,
-	ToolCall,
 	ToolResultMessage,
 } from "../types.ts";
 import { splitDeferredTools } from "../utils/deferred-tools.ts";
+import { requireJsonToolCall, requireJsonTools } from "../types.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { parseJsonWithRepair, parseStreamingJson } from "../utils/json-parse.ts";
@@ -582,7 +584,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 			await options?.onResponse?.({ status: response.status, headers: headersToRecord(response.headers) }, model);
 			stream.push({ type: "start", partial: output });
 
-			type Block = (ThinkingContent | TextContent | (ToolCall & { partialJson: string })) & { index: number };
+			type Block = (ThinkingContent | TextContent | (JsonToolCall & { partialJson: string })) & { index: number };
 			const blocks = output.content as Block[];
 
 			for await (const event of iterateAnthropicEvents(response, options?.signal)) {
@@ -634,6 +636,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 							name: isOAuth
 								? fromClaudeCodeName(event.content_block.name, context.tools)
 								: event.content_block.name,
+							inputType: "json",
 							arguments: (event.content_block.input as Record<string, any>) ?? {},
 							partialJson: "",
 							index: event.index,
@@ -1023,16 +1026,18 @@ function buildParams(
 	}
 
 	if (immediateTools.length > 0 || deferredTools.length > 0) {
+		const immediateJsonTools = requireJsonTools(immediateTools, "Anthropic Messages") ?? [];
+		const deferredJsonTools = requireJsonTools(deferredTools, "Anthropic Messages") ?? [];
 		params.tools = [
 			...convertTools(
-				immediateTools,
+				immediateJsonTools,
 				isOAuthToken,
 				compat.supportsEagerToolInputStreaming,
 				compat.supportsStrictTools,
 				compat.supportsCacheControlOnTools ? cacheControl : undefined,
 			),
 			...convertTools(
-				deferredTools,
+				deferredJsonTools,
 				isOAuthToken,
 				compat.supportsEagerToolInputStreaming,
 				compat.supportsStrictTools,
@@ -1229,11 +1234,12 @@ function convertMessages(
 						});
 					}
 				} else if (block.type === "toolCall") {
+					const toolCall = requireJsonToolCall(block, "Anthropic Messages replay");
 					blocks.push({
 						type: "tool_use",
-						id: block.id,
-						name: isOAuthToken ? toClaudeCodeName(block.name) : block.name,
-						input: block.arguments ?? {},
+						id: toolCall.id,
+						name: isOAuthToken ? toClaudeCodeName(toolCall.name) : toolCall.name,
+						input: toolCall.arguments ?? {},
 					});
 				}
 			}
@@ -1303,7 +1309,7 @@ function shouldUseFineGrainedToolStreamingBeta(model: Model<"anthropic-messages"
 }
 
 function convertTools(
-	tools: Tool[],
+	tools: JsonTool[],
 	isOAuthToken: boolean,
 	supportsEagerToolInputStreaming: boolean,
 	supportsStrictTools: boolean,

@@ -33,6 +33,8 @@ import type {
 	CacheRetention,
 	Context,
 	ImageContent,
+	JsonTool,
+	JsonToolCall,
 	Model,
 	ProviderEnv,
 	SimpleStreamOptions,
@@ -43,11 +45,10 @@ import type {
 	ThinkingBudgets,
 	ThinkingContent,
 	ThinkingLevel,
-	Tool,
-	ToolCall,
 	ToolResultMessage,
 } from "../types.ts";
 import { appendAssistantMessageDiagnostic } from "../utils/diagnostics.ts";
+import { requireJsonToolCall, requireJsonTools } from "../types.ts";
 import { normalizeProviderError } from "../utils/error-body.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { providerHeadersToRecord } from "../utils/headers.ts";
@@ -100,7 +101,7 @@ export interface BedrockOptions extends StreamOptions {
 	bearerToken?: string;
 }
 
-type Block = (TextContent | ThinkingContent | ToolCall) & { index?: number; partialJson?: string };
+type Block = (TextContent | ThinkingContent | JsonToolCall) & { index?: number; partialJson?: string };
 
 const EMPTY_TEXT_PLACEHOLDER = "<empty>";
 
@@ -241,7 +242,11 @@ export const stream: StreamFunction<"bedrock-converse-stream", BedrockOptions> =
 					...(inferenceMaxTokens !== undefined && { maxTokens: inferenceMaxTokens }),
 					...(options.temperature !== undefined && { temperature: options.temperature }),
 				},
-				toolConfig: convertToolConfig(context.tools, options.toolChoice, supportsStrictMode),
+				toolConfig: convertToolConfig(
+					requireJsonTools(context.tools, "Bedrock Converse Stream"),
+					options.toolChoice,
+					supportsStrictMode,
+				),
 				additionalModelRequestFields: buildAdditionalModelRequestFields(model, options),
 				...(options.requestMetadata !== undefined && { requestMetadata: options.requestMetadata }),
 			};
@@ -520,6 +525,7 @@ function handleContentBlockStart(
 			type: "toolCall",
 			id: start.toolUse.toolUseId || "",
 			name: start.toolUse.name || "",
+			inputType: "json",
 			arguments: {},
 			partialJson: "",
 			index,
@@ -885,11 +891,17 @@ function convertMessages(
 							contentBlocks.push(textBlock);
 							break;
 						}
-						case "toolCall":
+						case "toolCall": {
+							const toolCall = requireJsonToolCall(c, "Bedrock Converse");
 							contentBlocks.push({
-								toolUse: { toolUseId: c.id, name: c.name, input: sanitizeBedrockDocument(c.arguments) },
+								toolUse: {
+									toolUseId: toolCall.id,
+									name: toolCall.name,
+									input: sanitizeBedrockDocument(toolCall.arguments),
+								},
 							});
 							break;
+						}
 						case "thinking": {
 							// Skip empty thinking blocks
 							const thinking = sanitizeSurrogates(c.thinking);
@@ -995,7 +1007,7 @@ function convertMessages(
 }
 
 function convertToolConfig(
-	tools: Tool[] | undefined,
+	tools: JsonTool[] | undefined,
 	toolChoice: BedrockOptions["toolChoice"],
 	supportsStrictMode: boolean,
 ): ToolConfiguration | undefined {

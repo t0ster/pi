@@ -19,6 +19,8 @@ import type {
 	AssistantMessage,
 	Context,
 	ImageContent,
+	JsonTool,
+	JsonToolCall,
 	Model,
 	StopReason,
 	TextContent,
@@ -28,6 +30,7 @@ import type {
 	ToolCall,
 	Usage,
 } from "../types.ts";
+import { requireJsonToolCall, requireJsonTools } from "../types.ts";
 import type { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { shortHash } from "../utils/hash.ts";
 import { parseStreamingJson } from "../utils/json-parse.ts";
@@ -245,7 +248,7 @@ export function convertResponsesMessages<TApi extends Api>(
 						phase: parsedSignature?.phase,
 					} satisfies ResponseOutputMessage);
 				} else if (block.type === "toolCall") {
-					const toolCall = block as ToolCall;
+					const toolCall = requireJsonToolCall(block as ToolCall, "OpenAI Responses replay");
 					const [callId, itemIdRaw] = toolCall.id.split("|");
 					const customInputProperty = options?.grammarToolInputProperties?.get(toolCall.name);
 					let itemId: string | undefined = itemIdRaw;
@@ -319,12 +322,14 @@ export function convertResponsesMessages<TApi extends Api>(
 				deferredTools.push(tool);
 			}
 			if (deferredTools.length > 0 && options?.deferredToolsMode === "additional-tools") {
+				const jsonTools = requireJsonTools(deferredTools, "OpenAI Responses") ?? [];
 				messages.push({
 					type: "additional_tools",
 					role: "developer",
-					tools: convertResponsesTools(deferredTools, options.toolOptions),
+					tools: convertResponsesTools(jsonTools, options.toolOptions),
 				} satisfies ResponseInputItem);
 			} else if (deferredTools.length > 0 && options?.deferredToolsMode === "tool-search") {
+				const jsonTools = requireJsonTools(deferredTools, "OpenAI Responses") ?? [];
 				const names = deferredTools.map((tool) => tool.name);
 				const searchCallId = `pi_tool_load_${shortHash(`${msg.toolCallId}:${names.join(",")}`)}`;
 				messages.push({
@@ -339,7 +344,7 @@ export function convertResponsesMessages<TApi extends Api>(
 					call_id: searchCallId,
 					execution: "client",
 					status: "completed",
-					tools: convertResponsesTools(deferredTools, {
+					tools: convertResponsesTools(jsonTools, {
 						...options.toolOptions,
 						deferLoading: true,
 					}),
@@ -356,7 +361,7 @@ export function convertResponsesMessages<TApi extends Api>(
 // Tool conversion
 // =============================================================================
 
-export function convertResponsesTools(tools: readonly Tool[], options?: ConvertResponsesToolsOptions): OpenAITool[] {
+export function convertResponsesTools(tools: readonly JsonTool[], options?: ConvertResponsesToolsOptions): OpenAITool[] {
 	const defaultStrict = options?.strict === undefined ? false : options.strict;
 	const supportsStrictMode = options?.supportsStrictMode ?? true;
 	const supportsOpenAIGrammarTools = options?.supportsOpenAIGrammarTools ?? false;
@@ -399,7 +404,7 @@ export function convertResponsesTools(tools: readonly Tool[], options?: ConvertR
 // Stream processing
 // =============================================================================
 
-type StreamingToolCall = ToolCall & {
+type StreamingToolCall = JsonToolCall & {
 	partialJson?: string;
 	customInput?: {
 		property: string;
@@ -487,6 +492,7 @@ export async function processResponsesStream<TApi extends Api>(
 				type: "toolCall",
 				id: `${item.call_id}|${item.id}`,
 				name: item.name,
+				inputType: "json",
 				arguments: {},
 				...(item.namespace !== undefined ? { namespace: item.namespace } : {}),
 				partialJson: item.arguments || "",
@@ -508,6 +514,7 @@ export async function processResponsesStream<TApi extends Api>(
 				type: "toolCall",
 				id: `${item.call_id}|${item.id}`,
 				name: item.name,
+				inputType: "json",
 				arguments: { [inputProperty]: input },
 				...(item.namespace !== undefined ? { namespace: item.namespace } : {}),
 				customInput: {

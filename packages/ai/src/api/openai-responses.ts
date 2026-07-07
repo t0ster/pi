@@ -16,6 +16,7 @@ import type {
 	Usage,
 } from "../types.ts";
 import { splitDeferredTools } from "../utils/deferred-tools.ts";
+import { requireJsonTools } from "../types.ts";
 import { formatProviderError, normalizeProviderError } from "../utils/error-body.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
@@ -306,11 +307,13 @@ function buildParams(
 	}
 
 	if (toolPlacement.immediate.length > 0) {
-		params.tools = convertResponsesTools(toolPlacement.immediate, {
+		const jsonTools = requireJsonTools(toolPlacement.immediate, "OpenAI Responses") ?? [];
+		params.tools = convertResponsesTools(jsonTools, {
 			supportsStrictMode: compat.supportsStrictMode,
 			supportsOpenAIGrammarTools: compat.supportsOpenAIGrammarTools,
 		});
 	}
+	requireJsonTools([...toolPlacement.deferred.values()], "OpenAI Responses");
 
 	if (options?.toolChoice !== undefined) {
 		params.tool_choice = options.toolChoice;

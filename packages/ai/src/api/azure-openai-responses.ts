@@ -10,6 +10,7 @@ import type {
 	StreamFunction,
 	StreamOptions,
 } from "../types.ts";
+import { requireJsonTools } from "../types.ts";
 import { formatProviderError, normalizeProviderError } from "../utils/error-body.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
@@ -297,8 +298,9 @@ function buildParams(
 		params.temperature = options?.temperature;
 	}
 
-	if (context.tools && context.tools.length > 0) {
-		params.tools = convertResponsesTools(context.tools, {
+	const jsonTools = requireJsonTools(context.tools, "Azure OpenAI Responses");
+	if (jsonTools && jsonTools.length > 0) {
+		params.tools = convertResponsesTools(jsonTools, {
 			supportsStrictMode: model.compat?.supportsStrictMode ?? true,
 			supportsOpenAIGrammarTools: model.compat?.supportsOpenAIGrammarTools ?? false,
 		});

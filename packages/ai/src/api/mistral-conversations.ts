@@ -2,6 +2,8 @@ import { calculateCost, clampThinkingLevel } from "../models.ts";
 import type {
 	AssistantMessage,
 	Context,
+	JsonTool,
+	JsonToolCall,
 	Message,
 	Model,
 	SimpleStreamOptions,
@@ -10,9 +12,8 @@ import type {
 	StreamOptions,
 	TextContent,
 	ThinkingContent,
-	Tool,
-	ToolCall,
 } from "../types.ts";
+import { requireJsonToolCall, requireJsonTools } from "../types.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { shortHash } from "../utils/hash.ts";
 import { headersToRecord } from "../utils/headers.ts";
@@ -507,7 +508,8 @@ function buildChatPayload(
 		messages: toChatMessages(messages, model.input.includes("image")),
 	};
 
-	if (context.tools?.length) payload.tools = toFunctionTools(context.tools);
+	const jsonTools = requireJsonTools(context.tools, "Mistral Conversations");
+	if (jsonTools?.length) payload.tools = toFunctionTools(jsonTools);
 	if (options?.temperature !== undefined) payload.temperature = options.temperature;
 	if (options?.maxTokens !== undefined) payload.maxTokens = options.maxTokens;
 	if (options?.toolChoice) payload.toolChoice = mapToolChoice(options.toolChoice);
@@ -690,12 +692,12 @@ async function consumeChatStream(
 					: deriveMistralToolCallId(`toolcall:${toolCall.index ?? 0}`, 0);
 			const key = `${callId}:${toolCall.index || 0}`;
 			const existingIndex = toolBlocksByKey.get(key);
-			let block: (ToolCall & { partialArgs?: string }) | undefined;
+			let block: (JsonToolCall & { partialArgs?: string }) | undefined;
 
 			if (existingIndex !== undefined) {
 				const existing = output.content[existingIndex];
 				if (existing?.type === "toolCall") {
-					block = existing as ToolCall & { partialArgs?: string };
+					block = existing as JsonToolCall & { partialArgs?: string };
 				}
 			}
 
@@ -704,6 +706,7 @@ async function consumeChatStream(
 					type: "toolCall",
 					id: callId,
 					name: toolCall.function.name,
+					inputType: "json",
 					arguments: {},
 					partialArgs: "",
 				};
@@ -731,7 +734,7 @@ async function consumeChatStream(
 	for (const index of toolBlocksByKey.values()) {
 		const block = output.content[index];
 		if (block.type !== "toolCall") continue;
-		const toolBlock = block as ToolCall & { partialArgs?: string };
+		const toolBlock = block as JsonToolCall & { partialArgs?: string };
 		toolBlock.arguments = parseStreamingJson<Record<string, unknown>>(toolBlock.partialArgs);
 		// Finalize in-place and strip the scratch buffer so replay only
 		// carries parsed arguments.
@@ -745,7 +748,7 @@ async function consumeChatStream(
 	}
 }
 
-function toFunctionTools(tools: Tool[]): MistralFunctionTool[] {
+function toFunctionTools(tools: JsonTool[]): MistralFunctionTool[] {
 	return tools.map((tool) => {
 		const strict = resolveJsonSchemaStrictSampling(tool, true);
 		return {
@@ -822,10 +825,11 @@ function toChatMessages(messages: Message[], supportsImages: boolean): MistralCh
 					}
 					continue;
 				}
+				const toolCall = requireJsonToolCall(block, "Mistral message replay");
 				toolCalls.push({
-					id: block.id,
+					id: toolCall.id,
 					type: "function",
-					function: { name: block.name, arguments: JSON.stringify(block.arguments || {}) },
+					function: { name: toolCall.name, arguments: JSON.stringify(toolCall.arguments || {}) },
 					index: 0,
 				});
 			}

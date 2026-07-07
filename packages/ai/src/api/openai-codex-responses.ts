@@ -20,6 +20,7 @@ import type {
 	StreamOptions,
 	Usage,
 } from "../types.ts";
+import { requireJsonTools } from "../types.ts";
 import { combineAbortSignals } from "../utils/abort-signals.ts";
 import { splitDeferredTools } from "../utils/deferred-tools.ts";
 import {
@@ -565,12 +566,14 @@ function buildRequestBody(
 	}
 
 	if (toolPlacement.immediate.length > 0) {
-		body.tools = convertResponsesTools(toolPlacement.immediate, {
+		const jsonTools = requireJsonTools(toolPlacement.immediate, "OpenAI Codex Responses") ?? [];
+		body.tools = convertResponsesTools(jsonTools, {
 			strict: null,
 			supportsStrictMode,
 			supportsOpenAIGrammarTools,
 		});
 	}
+	requireJsonTools([...toolPlacement.deferred.values()], "OpenAI Codex Responses");
 
 	if (options?.reasoningEffort !== undefined) {
 		const effort =

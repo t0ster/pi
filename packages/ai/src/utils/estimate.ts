@@ -1,4 +1,13 @@
-import type { AssistantMessage, Context, ImageContent, Message, TextContent, Tool, Usage } from "../types.ts";
+import {
+	type AssistantMessage,
+	type Context,
+	type ImageContent,
+	isJsonToolCall,
+	type Message,
+	type TextContent,
+	type Tool,
+	type Usage,
+} from "../types.ts";
 
 export interface ContextUsageEstimate {
 	/** Estimated total context tokens. */
@@ -54,7 +63,9 @@ export function estimateMessageTokens(message: Message): number {
 		} else if (block.type === "thinking") {
 			chars += block.thinking.length;
 		} else {
-			chars += block.name.length + safeJsonStringify(block.arguments).length;
+			chars +=
+				block.name.length +
+				(isJsonToolCall(block) ? safeJsonStringify(block.arguments).length : block.input.length);
 		}
 	}
 	return Math.ceil(chars / CHARS_PER_TOKEN);
