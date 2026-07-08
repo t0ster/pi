@@ -376,6 +376,8 @@ export interface FreeformToolCall {
 	inputType: "freeform";
 	input: string;
 	thoughtSignature?: string; // Google-specific: opaque signature for reusing thought context
+	/** OpenAI Responses namespace for calls to dynamically loaded or namespaced tools. */
+	namespace?: string;
 }
 
 export type ToolCall = JsonToolCall | FreeformToolCall;

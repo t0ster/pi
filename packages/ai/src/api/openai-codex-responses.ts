@@ -20,7 +20,6 @@ import type {
 	StreamOptions,
 	Usage,
 } from "../types.ts";
-import { requireJsonTools } from "../types.ts";
 import { combineAbortSignals } from "../utils/abort-signals.ts";
 import { splitDeferredTools } from "../utils/deferred-tools.ts";
 import {
@@ -479,6 +478,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 				// Streaming scratch buffers are only used during parsing; never persist them.
 				delete (block as { partialJson?: string }).partialJson;
 				delete (block as { customInput?: unknown }).customInput;
+				delete (block as { partialInput?: string }).partialInput;
 			}
 			output.stopReason = options?.signal?.aborted ? "aborted" : "error";
 			output.errorMessage = formatProviderError(normalizeProviderError(error));
@@ -566,14 +566,12 @@ function buildRequestBody(
 	}
 
 	if (toolPlacement.immediate.length > 0) {
-		const jsonTools = requireJsonTools(toolPlacement.immediate, "OpenAI Codex Responses") ?? [];
-		body.tools = convertResponsesTools(jsonTools, {
+		body.tools = convertResponsesTools(toolPlacement.immediate, {
 			strict: null,
 			supportsStrictMode,
 			supportsOpenAIGrammarTools,
 		});
 	}
-	requireJsonTools([...toolPlacement.deferred.values()], "OpenAI Codex Responses");
 
 	if (options?.reasoningEffort !== undefined) {
 		const effort =

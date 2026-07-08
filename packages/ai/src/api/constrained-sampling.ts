@@ -1,4 +1,5 @@
-import type { Tool } from "../types.ts";
+import type { JsonTool, Tool } from "../types.ts";
+import { isJsonTool } from "../types.ts";
 
 interface JsonSchemaObject {
 	[key: string]: unknown;
@@ -186,7 +187,7 @@ export function appendGrammarToolInputJsonDelta(
 	return delta;
 }
 
-function inferGrammarInputProperty(tool: Tool): string {
+function inferGrammarInputProperty(tool: JsonTool): string {
 	const schema = tool.parameters as JsonSchemaObject;
 	if (schema.type !== "object") {
 		throw new Error("grammar constrained sampling requires an object parameter schema");
@@ -205,7 +206,7 @@ function inferGrammarInputProperty(tool: Tool): string {
 	return inputProperty;
 }
 
-export function resolveJsonSchemaStrictSampling(tool: Tool, supportsStrictMode: boolean): boolean | undefined {
+export function resolveJsonSchemaStrictSampling(tool: JsonTool, supportsStrictMode: boolean): boolean | undefined {
 	const config = tool.constrainedSampling;
 	if (!config || config.type !== "json_schema") return undefined;
 
@@ -228,7 +229,7 @@ export function resolveJsonSchemaStrictSampling(tool: Tool, supportsStrictMode: 
 }
 
 export function resolveGrammarConstrainedSampling(
-	tool: Tool,
+	tool: JsonTool,
 	supportsOpenAIGrammarTools: boolean,
 ): GrammarConstrainedSampling | undefined {
 	const config = tool.constrainedSampling;
@@ -268,6 +269,7 @@ export function createGrammarToolInputProperties(
 ): ReadonlyMap<string, string> {
 	const properties = new Map<string, string>();
 	for (const tool of tools ?? []) {
+		if (!isJsonTool(tool)) continue;
 		const grammar = resolveGrammarConstrainedSampling(tool, supportsOpenAIGrammarTools);
 		if (grammar) {
 			properties.set(tool.name, grammar.inputProperty);

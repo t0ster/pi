@@ -16,7 +16,6 @@ import type {
 	Usage,
 } from "../types.ts";
 import { splitDeferredTools } from "../utils/deferred-tools.ts";
-import { requireJsonTools } from "../types.ts";
 import { formatProviderError, normalizeProviderError } from "../utils/error-body.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
@@ -184,6 +183,7 @@ export const stream: StreamFunction<"openai-responses", OpenAIResponsesOptions> 
 				// Streaming scratch buffers are only used during parsing; never persist them.
 				delete (block as { partialJson?: string }).partialJson;
 				delete (block as { customInput?: unknown }).customInput;
+				delete (block as { partialInput?: string }).partialInput;
 			}
 			output.stopReason = options?.signal?.aborted ? "aborted" : "error";
 			output.errorMessage = formatOpenAIResponsesError(error);
@@ -307,13 +307,11 @@ function buildParams(
 	}
 
 	if (toolPlacement.immediate.length > 0) {
-		const jsonTools = requireJsonTools(toolPlacement.immediate, "OpenAI Responses") ?? [];
-		params.tools = convertResponsesTools(jsonTools, {
+		params.tools = convertResponsesTools(toolPlacement.immediate, {
 			supportsStrictMode: compat.supportsStrictMode,
 			supportsOpenAIGrammarTools: compat.supportsOpenAIGrammarTools,
 		});
 	}
-	requireJsonTools([...toolPlacement.deferred.values()], "OpenAI Responses");
 
 	if (options?.toolChoice !== undefined) {
 		params.tool_choice = options.toolChoice;
