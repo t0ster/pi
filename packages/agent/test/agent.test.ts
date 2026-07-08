@@ -4,10 +4,10 @@ import { describe, expect, it } from "vitest";
 import {
 	Agent,
 	type AgentEvent,
-	type AgentTool,
 	type AgentToolUpdateCallback,
-	type StreamFn,
 	setDefaultStreamFn,
+	type JsonAgentTool,
+	type StreamFn,
 } from "../src/index.ts";
 
 // Mock stream that mimics AssistantMessageEventStream
@@ -306,7 +306,7 @@ describe("Agent", () => {
 		const onUnhandledRejection = (error: unknown) => {
 			unhandledRejections.push(error);
 		};
-		const tool: AgentTool<typeof toolSchema, { status: string }> = {
+		const tool: JsonAgentTool<typeof toolSchema, { status: string }> = {
 			name: "delayed_tool",
 			label: "Delayed Tool",
 			description: "Captures progress callbacks",
@@ -370,7 +370,7 @@ describe("Agent", () => {
 		const releaseSlow = createDeferred();
 		let settledToolUpdate: AgentToolUpdateCallback<{ status: string }> | undefined;
 		const events: AgentEvent[] = [];
-		const settledTool: AgentTool<typeof toolSchema, { status: string }> = {
+		const settledTool: JsonAgentTool<typeof toolSchema, { status: string }> = {
 			name: "settled_tool",
 			label: "Settled Tool",
 			description: "Captures progress callbacks",
@@ -384,7 +384,7 @@ describe("Agent", () => {
 				};
 			},
 		};
-		const slowTool: AgentTool<typeof toolSchema, { status: string }> = {
+		const slowTool: JsonAgentTool<typeof toolSchema, { status: string }> = {
 			name: "slow_tool",
 			label: "Slow Tool",
 			description: "Keeps the agent run active",
@@ -699,7 +699,7 @@ describe("Agent", () => {
 
 	it("keeps legacy prepareNextTurn signal callback behavior", async () => {
 		const schema = Type.Object({});
-		const tool: AgentTool<typeof schema> = {
+		const tool: JsonAgentTool<typeof schema> = {
 			name: "noop",
 			label: "Noop",
 			description: "Noop tool",

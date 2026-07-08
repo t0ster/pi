@@ -1,6 +1,6 @@
 import type { Usage } from "@earendil-works/pi-ai";
 import { type Static, Type } from "typebox";
-import type { AgentTool, AgentToolResult } from "../../src/types.ts";
+import type { AgentToolResult, JsonAgentTool } from "../../src/types.ts";
 
 export interface CalculateResult extends AgentToolResult<undefined> {
 	content: Array<{ type: "text"; text: string }>;
@@ -22,7 +22,7 @@ const calculateSchema = Type.Object({
 
 type CalculateParams = Static<typeof calculateSchema>;
 
-export const calculateTool: AgentTool<typeof calculateSchema, undefined> = {
+export const calculateTool: JsonAgentTool<typeof calculateSchema, undefined> = {
 	label: "Calculator",
 	name: "calculate",
 	description: "Evaluate mathematical expressions",

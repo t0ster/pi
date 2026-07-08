@@ -1,4 +1,5 @@
 import type { TelemetryContext } from "@earendil-works/pi-telemetry";
+import type { TSchema } from "typebox";
 import type { AnthropicOptions } from "./api/anthropic-messages.ts";
 import type { AzureOpenAIResponsesOptions } from "./api/azure-openai-responses.ts";
 import type { BedrockOptions } from "./api/bedrock-converse-stream.ts";
@@ -498,8 +499,6 @@ export interface AssistantImages {
 	timestamp: number; // Unix timestamp in milliseconds
 }
 
-import type { TSchema } from "typebox";
-
 /** OpenAI grammar variants for constrained sampling. */
 export type GrammarFormat = "openai_lark" | "openai_regex";
 
@@ -522,9 +521,12 @@ export type ConstrainedSamplingConfig =
 			variants: GrammarVariants;
 	  };
 
-export interface JsonTool<TParameters extends TSchema = TSchema> {
+export interface ToolBase {
 	name: string;
 	description: string;
+}
+
+export interface JsonTool<TParameters extends TSchema = TSchema> extends ToolBase {
 	parameters: TParameters;
 	constrainedSampling?: false | ConstrainedSamplingConfig;
 }
@@ -535,10 +537,8 @@ export interface FreeformToolFormat {
 	definition: string;
 }
 
-export interface FreeformTool {
+export interface FreeformTool extends ToolBase {
 	type: "freeform";
-	name: string;
-	description: string;
 	format: FreeformToolFormat;
 }
 

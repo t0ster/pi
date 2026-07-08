@@ -1,4 +1,4 @@
-import type { AgentTool, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { JsonAgentTool, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { fauxAssistantMessage, fauxToolCall, type Model, type Usage } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
@@ -114,7 +114,7 @@ describe("AgentSession model and extension characterization", () => {
 	});
 
 	it("allows extension tool_call handlers to block tool execution", async () => {
-		const echoTool: AgentTool = {
+		const echoTool: JsonAgentTool = {
 			name: "echo",
 			label: "Echo",
 			description: "Echo text back",
@@ -173,7 +173,7 @@ describe("AgentSession model and extension characterization", () => {
 			cost: { input: 0.5, output: 0.6, cacheRead: 0.7, cacheWrite: 0.8, total: 2.6 },
 		};
 		let observedToolUsage: Usage | undefined;
-		const echoTool: AgentTool = {
+		const echoTool: JsonAgentTool = {
 			name: "echo",
 			label: "Echo",
 			description: "Echo text back",
