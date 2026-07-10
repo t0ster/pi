@@ -162,6 +162,10 @@
 - Fixed explicitly configured Amazon Bedrock profiles being overridden by ambient AWS access keys ([#7176](https://github.com/earendil-works/pi/pull/7176) by [@christianbasch](https://github.com/christianbasch)).
 - Fixed malformed OpenAI-compatible tool-call deltas with both a valid `function` payload and an empty `custom` object discarding the function arguments ([#7288](https://github.com/earendil-works/pi/pull/7288) by [@sunnyyoung](https://github.com/sunnyyoung)).
 
+### Fixed
+
+- Fixed legacy JSON tool calls without an `inputType` discriminator being replayed as malformed freeform calls.
+
 ## [0.82.1] - 2026-07-25
 
 ### Added
