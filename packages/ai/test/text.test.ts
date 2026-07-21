@@ -4,7 +4,7 @@ import { type AssistantMessage, contentText, type ToolResultMessage } from "../s
 const content: AssistantMessage["content"] = [
 	{ type: "thinking", thinking: "reasoning" },
 	{ type: "text", text: "first" },
-	{ type: "toolCall", id: "1", name: "read", arguments: {} },
+	{ type: "toolCall", id: "1", name: "read", inputType: "json", arguments: {} },
 	{ type: "text", text: "second" },
 ];
 

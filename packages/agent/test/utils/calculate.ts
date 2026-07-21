@@ -32,7 +32,7 @@ export const calculateTool: JsonAgentTool<typeof calculateSchema, undefined> = {
 	},
 };
 
-export function createCalculateToolWithUsage(usage: Usage): AgentTool<typeof calculateSchema, undefined> {
+export function createCalculateToolWithUsage(usage: Usage): JsonAgentTool<typeof calculateSchema, undefined> {
 	return {
 		...calculateTool,
 		execute: async (_toolCallId: string, args: CalculateParams) => ({ ...calculate(args.expression), usage }),
