@@ -95,7 +95,7 @@ function makeUserMessage(timestamp: number): UserMessage {
 function makeAssistantToolCall(): AssistantMessage {
 	return {
 		role: "assistant",
-		content: [{ type: "toolCall", id: "call_1", name: "base_tool", arguments: {} }],
+		content: [{ type: "toolCall", id: "call_1", name: "base_tool", inputType: "json", arguments: {} }],
 		api: "anthropic-messages",
 		provider: "anthropic",
 		model: "claude-opus-4-6",
@@ -197,8 +197,8 @@ describe("deferred tools", () => {
 		const context = makeContext([makeTool("base_tool"), makeTool("late_tool")]);
 		const assistant = context.messages[1] as AssistantMessage;
 		assistant.content = [
-			{ type: "toolCall", id: "call_1", name: "base_tool", arguments: {} },
-			{ type: "toolCall", id: "call_2", name: "base_tool", arguments: {} },
+			{ type: "toolCall", id: "call_1", name: "base_tool", inputType: "json", arguments: {} },
+			{ type: "toolCall", id: "call_2", name: "base_tool", inputType: "json", arguments: {} },
 		];
 		const firstResult = context.messages[2] as ToolResultMessage;
 		firstResult.content = [
@@ -253,7 +253,7 @@ describe("deferred tools", () => {
 	it("keeps a tool immediate when it was used before its marker", async () => {
 		const context = makeContext([makeTool("base_tool"), makeTool("late_tool")]);
 		const assistant = context.messages[1] as AssistantMessage;
-		assistant.content = [{ type: "toolCall", id: "call_1", name: "late_tool", arguments: {} }];
+		assistant.content = [{ type: "toolCall", id: "call_1", name: "late_tool", inputType: "json", arguments: {} }];
 		const payload = await capturePayload<AnthropicPayload>(getModel("anthropic", "claude-opus-4-6"), context);
 
 		expect(payload.tools?.map((tool) => tool.name)).toEqual(["base_tool", "late_tool"]);
@@ -263,7 +263,7 @@ describe("deferred tools", () => {
 	it("normalizes OAuth names before checking prior tool usage", async () => {
 		const context = makeContext([makeTool("base_tool"), makeTool("read")], ["read"]);
 		const assistant = context.messages[1] as AssistantMessage;
-		assistant.content = [{ type: "toolCall", id: "call_1", name: "Read", arguments: {} }];
+		assistant.content = [{ type: "toolCall", id: "call_1", name: "Read", inputType: "json", arguments: {} }];
 		const payload = await capturePayload<AnthropicPayload>(
 			getModel("anthropic", "claude-opus-4-6"),
 			context,
