@@ -5,9 +5,9 @@ import {
 	Agent,
 	type AgentEvent,
 	type AgentToolUpdateCallback,
-	setDefaultStreamFn,
 	type JsonAgentTool,
 	type StreamFn,
+	setDefaultStreamFn,
 } from "../src/index.ts";
 
 // Mock stream that mimics AssistantMessageEventStream

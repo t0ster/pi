@@ -1,6 +1,6 @@
 import type { SimpleStreamOptions, Transport } from "@earendil-works/pi-ai";
 import type { Static, TSchema } from "typebox";
-import type { AgentTool, AgentToolResult, AgentToolUpdateCallback } from "../types.ts";
+import type { AgentToolResult, AgentToolUpdateCallback, JsonAgentTool } from "../types.ts";
 
 /** Result of a fallible operation. Expected failures are returned as `ok: false` instead of thrown. */
 export type Result<TValue, TError> = { ok: true; value: TValue } | { ok: false; error: TError };
@@ -82,7 +82,7 @@ export type AgentHarnessTool<
 	TContext extends object | undefined,
 	TParameters extends TSchema = TSchema,
 	TDetails = unknown,
-> = Omit<AgentTool<TParameters, TDetails>, "execute"> & {
+> = Omit<JsonAgentTool<TParameters, TDetails>, "execute"> & {
 	/** Execute the tool call with the context resolved for the current turn snapshot. */
 	execute(
 		toolCallId: string,

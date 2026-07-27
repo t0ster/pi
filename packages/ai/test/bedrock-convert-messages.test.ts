@@ -57,6 +57,7 @@ vi.mock("@aws-sdk/client-bedrock-runtime", () => {
 
 import { stream as streamBedrock } from "../src/api/bedrock-converse-stream.ts";
 import type { Context, Message, Model } from "../src/types.ts";
+import { isJsonTool } from "../src/types.ts";
 
 const baseModel: Model<"bedrock-converse-stream"> = {
 	id: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
@@ -113,7 +114,9 @@ describe("Bedrock constrained sampling", () => {
 		const toolConfig = (payload as { toolConfig: { tools: Array<{ toolSpec: { strict?: boolean } }> } }).toolConfig;
 		expect(toolConfig.tools[0].toolSpec.strict).toBe(true);
 
-		context.tools![0].constrainedSampling = { type: "json_schema", strict: "prefer" };
+		const tool = context.tools![0];
+		if (!isJsonTool(tool)) throw new Error("Expected JSON tool");
+		tool.constrainedSampling = { type: "json_schema", strict: "prefer" };
 		const novaPayload = await capturePayload(context, novaModel);
 		const novaToolConfig = (
 			novaPayload as {
@@ -159,6 +162,7 @@ describe("Bedrock tool arguments", () => {
 				type: "toolCall",
 				id: "tool-1",
 				name: "edit",
+				inputType: "json",
 				arguments: {
 					path: "/workspace/foobar/file.js",
 					edits: [
@@ -366,6 +370,7 @@ describe("bedrock convertMessages skips unknown content types", () => {
 						type: "toolCall",
 						id: "tool-1",
 						name: "edit",
+						inputType: "json",
 						arguments: toolArguments,
 					},
 				],

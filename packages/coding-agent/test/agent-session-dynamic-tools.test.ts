@@ -74,6 +74,7 @@ describe("AgentSession dynamic tool registration", () => {
 		});
 
 		const bashTool = session.agent.state.tools.find((tool) => tool.name === "bash")!;
+		if (!("parameters" in bashTool)) throw new Error("Expected JSON bash tool");
 		expect(session.systemPrompt).toContain(
 			"You can inspect PI_* environment variables for current model and session details.",
 		);
@@ -87,6 +88,7 @@ describe("AgentSession dynamic tool registration", () => {
 		});
 
 		const optedOutBashTool = session.agent.state.tools.find((tool) => tool.name === "bash_without_session_env")!;
+		if (!("parameters" in optedOutBashTool)) throw new Error("Expected JSON bash tool");
 		await optedOutBashTool.execute("bash-no-env", { command: "printf ok" });
 		expect(optedOutEnv).not.toHaveProperty("PI_SESSION_ID");
 		expect(optedOutEnv).not.toHaveProperty("PI_SESSION_FILE");

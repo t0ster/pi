@@ -166,7 +166,15 @@ describe("openai-completions cacheControlFormat", () => {
 			{ role: "user", content: "Read the file", timestamp },
 			{
 				role: "assistant",
-				content: [{ type: "toolCall", id: "call_1", name: "read", arguments: { path: "README.md" } }],
+				content: [
+					{
+						type: "toolCall",
+						id: "call_1",
+						name: "read",
+						inputType: "json",
+						arguments: { path: "README.md" },
+					},
+				],
 				api: "openai-completions",
 				provider: "openrouter",
 				model: model.id,

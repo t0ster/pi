@@ -11,7 +11,7 @@ import {
 	convertResponsesTools,
 	processResponsesStream,
 } from "../src/api/openai-responses-shared.ts";
-import type { AssistantMessage, Context, Model, Tool, ToolCall } from "../src/types.ts";
+import type { AssistantMessage, Context, JsonTool, JsonToolCall, Model } from "../src/types.ts";
 import { AssistantMessageEventStream } from "../src/utils/event-stream.ts";
 
 function makeModel(): Model<"openai-responses"> {
@@ -57,7 +57,7 @@ async function* iterateEvents(events: ResponseStreamEvent[]): AsyncGenerator<Res
 	yield* events;
 }
 
-function makeTool(overrides: Partial<Tool> = {}): Tool {
+function makeTool(overrides: Partial<JsonTool> = {}): JsonTool {
 	return {
 		name: "sample_tool",
 		description: "Sample tool",
@@ -191,10 +191,11 @@ describe("constrained tool sampling", () => {
 	});
 
 	it("replays grammar calls as custom Responses items", () => {
-		const replayedToolCall: ToolCall = {
+		const replayedToolCall: JsonToolCall = {
 			type: "toolCall",
 			id: "call_1|ctc_1",
 			name: "sample_tool",
+			inputType: "json",
 			arguments: { payload: "abc" },
 		};
 		const context: Context = {
@@ -298,7 +299,13 @@ describe("constrained tool sampling", () => {
 
 		expect(output.stopReason).toBe("toolUse");
 		expect(output.content).toEqual([
-			{ type: "toolCall", id: "call_1|ctc_1", name: "sample_tool", arguments: { payload: "abc" } },
+			{
+				type: "toolCall",
+				id: "call_1|ctc_1",
+				name: "sample_tool",
+				inputType: "json",
+				arguments: { payload: "abc" },
+			},
 		]);
 		expect(JSON.parse(deltas.join(""))).toEqual({ payload: "abc" });
 	});

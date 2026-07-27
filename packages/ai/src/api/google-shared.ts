@@ -337,7 +337,7 @@ export function mapToolChoice(choice: string): FunctionCallingConfigMode {
 }
 
 export function resolveGoogleFunctionCallingMode(
-	tools: Tool[],
+	tools: JsonTool[],
 	toolChoice: string | undefined,
 	supportsStrictMode: boolean,
 ): FunctionCallingConfigMode | undefined {

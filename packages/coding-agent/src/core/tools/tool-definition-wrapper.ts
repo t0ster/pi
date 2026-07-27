@@ -52,8 +52,13 @@ export function wrapToolDefinition(definition: ToolDefinition, ctxFactory?: () =
 		constrainedSampling: definition.constrainedSampling,
 		prepareArguments: definition.prepareArguments,
 		executionMode: definition.executionMode,
-		execute: (toolCallId, params, signal, onUpdate, ctx?: ExtensionContext) =>
-			definition.execute(toolCallId, params, signal, onUpdate, ctx ?? (ctxFactory?.() as ExtensionContext)),
+		execute: (
+			toolCallId: string,
+			params: unknown,
+			signal: AbortSignal | undefined,
+			onUpdate: AgentToolUpdateCallback | undefined,
+			ctx?: ExtensionContext,
+		) => definition.execute(toolCallId, params, signal, onUpdate, ctx ?? (ctxFactory?.() as ExtensionContext)),
 	};
 }
 
