@@ -5,7 +5,7 @@
  * Tool call and tool result interception is handled by AgentSession via agent-core hooks.
  */
 
-import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import { wrapToolDefinition } from "../tools/tool-definition-wrapper.ts";
 import type { ExtensionRunner } from "./runner.ts";
 import type { RegisteredTool } from "./types.ts";
@@ -16,12 +16,12 @@ import type { RegisteredTool } from "./types.ts";
  */
 export function wrapRegisteredTool(registeredTool: RegisteredTool, runner: ExtensionRunner): AgentTool {
 	const tool = wrapToolDefinition(registeredTool.definition, () => runner.createContext());
-	const execute = tool.execute;
-	return {
-		...tool,
-		execute: async (toolCallId, params, signal, onUpdate) => {
+	const wrapExecute = <TArgs extends unknown[], TDetails>(
+		execute: (...args: TArgs) => Promise<AgentToolResult<TDetails>>,
+	): ((...args: TArgs) => Promise<AgentToolResult<TDetails>>) => {
+		return async (...args) => {
 			const activeBefore = runner.getActiveTools();
-			const result = await execute(toolCallId, params, signal, onUpdate);
+			const result = await execute(...args);
 			const activeAfter = runner.getActiveTools();
 			if (!activeBefore.every((name) => activeAfter.includes(name))) return result;
 
@@ -32,8 +32,13 @@ export function wrapRegisteredTool(registeredTool: RegisteredTool, runner: Exten
 				...result,
 				addedToolNames: [...new Set([...(result.addedToolNames ?? []), ...addedToolNames])],
 			};
-		},
+		};
 	};
+
+	if ("parameters" in tool) {
+		return { ...tool, execute: wrapExecute(tool.execute) };
+	}
+	return { ...tool, execute: wrapExecute(tool.execute) };
 }
 
 /**

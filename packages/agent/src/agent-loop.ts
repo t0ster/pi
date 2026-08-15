@@ -7,10 +7,12 @@ import {
 	type AssistantMessage,
 	type Context,
 	EventStream,
-	streamSimple,
+	isJsonToolCall,
+	type JsonToolCall,
 	type ToolResultMessage,
 	validateToolArguments,
-} from "@earendil-works/pi-ai/compat";
+} from "@earendil-works/pi-ai";
+import { getDefaultStreamFn } from "./stream-fn.ts";
 import type {
 	AgentContext,
 	AgentEvent,
@@ -19,10 +21,24 @@ import type {
 	AgentTool,
 	AgentToolCall,
 	AgentToolResult,
+	FreeformAgentTool,
+	JsonAgentTool,
 	StreamFn,
 } from "./types.ts";
 
 export type AgentEventSink = (event: AgentEvent) => Promise<void> | void;
+
+function toolCallEventArgs(toolCall: AgentToolCall): Record<string, any> {
+	return isJsonToolCall(toolCall) ? toolCall.arguments : { input: toolCall.input };
+}
+
+function isJsonAgentTool(tool: AgentTool): tool is JsonAgentTool<any> {
+	return !("type" in tool && tool.type === "freeform");
+}
+
+function isPreparedJsonToolCall(prepared: PreparedToolCall): prepared is PreparedJsonToolCall {
+	return prepared.toolCall.inputType === "json";
+}
 
 /**
  * Start an agent loop with a new prompt message.
@@ -32,8 +48,8 @@ export function agentLoop(
 	prompts: AgentMessage[],
 	context: AgentContext,
 	config: AgentLoopConfig,
-	signal?: AbortSignal,
-	streamFn?: StreamFn,
+	signal: AbortSignal | undefined,
+	streamFn: StreamFn,
 ): EventStream<AgentEvent, AgentMessage[]> {
 	const stream = createAgentStream();
 
@@ -64,8 +80,8 @@ export function agentLoop(
 export function agentLoopContinue(
 	context: AgentContext,
 	config: AgentLoopConfig,
-	signal?: AbortSignal,
-	streamFn?: StreamFn,
+	signal: AbortSignal | undefined,
+	streamFn: StreamFn,
 ): EventStream<AgentEvent, AgentMessage[]> {
 	if (context.messages.length === 0) {
 		throw new Error("Cannot continue: no messages in context");
@@ -97,8 +113,8 @@ export async function runAgentLoop(
 	context: AgentContext,
 	config: AgentLoopConfig,
 	emit: AgentEventSink,
-	signal?: AbortSignal,
-	streamFn?: StreamFn,
+	signal: AbortSignal | undefined,
+	streamFn: StreamFn,
 ): Promise<AgentMessage[]> {
 	const newMessages: AgentMessage[] = [...prompts];
 	const currentContext: AgentContext = {
@@ -113,7 +129,7 @@ export async function runAgentLoop(
 		await emit({ type: "message_end", message: prompt });
 	}
 
-	await runLoop(currentContext, newMessages, config, signal, emit, streamFn);
+	await runLoop(currentContext, newMessages, config, signal, emit, streamFn ?? getDefaultStreamFn());
 	return newMessages;
 }
 
@@ -121,8 +137,8 @@ export async function runAgentLoopContinue(
 	context: AgentContext,
 	config: AgentLoopConfig,
 	emit: AgentEventSink,
-	signal?: AbortSignal,
-	streamFn?: StreamFn,
+	signal: AbortSignal | undefined,
+	streamFn: StreamFn,
 ): Promise<AgentMessage[]> {
 	if (context.messages.length === 0) {
 		throw new Error("Cannot continue: no messages in context");
@@ -138,7 +154,7 @@ export async function runAgentLoopContinue(
 	await emit({ type: "agent_start" });
 	await emit({ type: "turn_start" });
 
-	await runLoop(currentContext, newMessages, config, signal, emit, streamFn);
+	await runLoop(currentContext, newMessages, config, signal, emit, streamFn ?? getDefaultStreamFn());
 	return newMessages;
 }
 
@@ -158,7 +174,7 @@ async function runLoop(
 	initialConfig: AgentLoopConfig,
 	signal: AbortSignal | undefined,
 	emit: AgentEventSink,
-	streamFn?: StreamFn,
+	streamFunction: StreamFn,
 ): Promise<void> {
 	let currentContext = initialContext;
 	let config = initialConfig;
@@ -190,7 +206,7 @@ async function runLoop(
 			}
 
 			// Stream assistant response
-			const message = await streamAssistantResponse(currentContext, config, signal, emit, streamFn);
+			const message = await streamAssistantResponse(currentContext, config, signal, emit, streamFunction);
 			newMessages.push(message);
 
 			if (message.stopReason === "error" || message.stopReason === "aborted") {
@@ -283,7 +299,7 @@ async function streamAssistantResponse(
 	config: AgentLoopConfig,
 	signal: AbortSignal | undefined,
 	emit: AgentEventSink,
-	streamFn?: StreamFn,
+	streamFunction: StreamFn,
 ): Promise<AssistantMessage> {
 	// Apply context transform if configured (AgentMessage[] → AgentMessage[])
 	let messages = context.messages;
@@ -300,8 +316,6 @@ async function streamAssistantResponse(
 		messages: llmMessages,
 		tools: context.tools,
 	};
-
-	const streamFunction = streamFn || streamSimple;
 
 	// Resolve API key (important for expiring tokens)
 	const resolvedApiKey =
@@ -390,7 +404,7 @@ async function failToolCallsFromTruncatedMessage(
 			type: "tool_execution_start",
 			toolCallId: toolCall.id,
 			toolName: toolCall.name,
-			args: toolCall.arguments,
+			args: toolCallEventArgs(toolCall),
 		});
 		const finalized: FinalizedToolCallOutcome = {
 			toolCall,
@@ -448,7 +462,7 @@ async function executeToolCallsSequential(
 			type: "tool_execution_start",
 			toolCallId: toolCall.id,
 			toolName: toolCall.name,
-			args: toolCall.arguments,
+			args: toolCallEventArgs(toolCall),
 		});
 
 		const preparation = await prepareToolCall(currentContext, assistantMessage, toolCall, config, signal);
@@ -503,7 +517,7 @@ async function executeToolCallsParallel(
 			type: "tool_execution_start",
 			toolCallId: toolCall.id,
 			toolName: toolCall.name,
-			args: toolCall.arguments,
+			args: toolCallEventArgs(toolCall),
 		});
 
 		const preparation = await prepareToolCall(currentContext, assistantMessage, toolCall, config, signal);
@@ -555,12 +569,21 @@ async function executeToolCallsParallel(
 	};
 }
 
-type PreparedToolCall = {
+type PreparedJsonToolCall = {
 	kind: "prepared";
-	toolCall: AgentToolCall;
-	tool: AgentTool<any>;
+	toolCall: JsonToolCall;
+	tool: JsonAgentTool<any>;
 	args: unknown;
 };
+
+type PreparedFreeformToolCall = {
+	kind: "prepared";
+	toolCall: Exclude<AgentToolCall, JsonToolCall>;
+	tool: FreeformAgentTool<any>;
+	args: string;
+};
+
+type PreparedToolCall = PreparedJsonToolCall | PreparedFreeformToolCall;
 
 type ImmediateToolCallOutcome = {
 	kind: "immediate";
@@ -585,7 +608,7 @@ function shouldTerminateToolBatch(finalizedCalls: FinalizedToolCallOutcome[]): b
 	return finalizedCalls.length > 0 && finalizedCalls.every((finalized) => finalized.result.terminate === true);
 }
 
-function prepareToolCallArguments(tool: AgentTool<any>, toolCall: AgentToolCall): AgentToolCall {
+function prepareToolCallArguments(tool: JsonAgentTool<any>, toolCall: JsonToolCall): JsonToolCall {
 	if (!tool.prepareArguments) {
 		return toolCall;
 	}
@@ -615,15 +638,82 @@ async function prepareToolCall(
 		};
 	}
 
-	try {
-		const preparedToolCall = prepareToolCallArguments(tool, toolCall);
-		const validatedArgs = validateToolArguments(tool, preparedToolCall);
-		if (config.beforeToolCall) {
+	if (isJsonToolCall(toolCall)) {
+		if (!isJsonAgentTool(tool)) {
+			return {
+				kind: "immediate",
+				result: createErrorToolResult(`Tool ${toolCall.name} does not accept JSON input`),
+				isError: true,
+			};
+		}
+
+		try {
+			const preparedToolCall = prepareToolCallArguments(tool, toolCall);
+			const validatedArgs = validateToolArguments(tool, preparedToolCall);
+			const blocked = await runBeforeToolCallHook(
+				currentContext,
+				assistantMessage,
+				toolCall,
+				validatedArgs,
+				config,
+				signal,
+			);
+			if (blocked) return blocked;
+			return {
+				kind: "prepared",
+				toolCall,
+				tool,
+				args: validatedArgs,
+			};
+		} catch (error) {
+			return {
+				kind: "immediate",
+				result: createErrorToolResult(error instanceof Error ? error.message : String(error)),
+				isError: true,
+			};
+		}
+	}
+
+	if (isJsonAgentTool(tool)) {
+		return {
+			kind: "immediate",
+			result: createErrorToolResult(`Tool ${toolCall.name} does not accept freeform input`),
+			isError: true,
+		};
+	}
+
+	const blocked = await runBeforeToolCallHook(
+		currentContext,
+		assistantMessage,
+		toolCall,
+		toolCall.input,
+		config,
+		signal,
+	);
+	if (blocked) return blocked;
+	return {
+		kind: "prepared",
+		toolCall,
+		tool,
+		args: toolCall.input,
+	};
+}
+
+async function runBeforeToolCallHook(
+	currentContext: AgentContext,
+	assistantMessage: AssistantMessage,
+	toolCall: AgentToolCall,
+	args: unknown,
+	config: AgentLoopConfig,
+	signal: AbortSignal | undefined,
+): Promise<ImmediateToolCallOutcome | undefined> {
+	if (config.beforeToolCall) {
+		try {
 			const beforeResult = await config.beforeToolCall(
 				{
 					assistantMessage,
 					toolCall,
-					args: validatedArgs,
+					args,
 					context: currentContext,
 				},
 				signal,
@@ -636,33 +726,32 @@ async function prepareToolCall(
 				};
 			}
 			if (beforeResult?.block) {
+				const result = createErrorToolResult(beforeResult.reason || "Tool execution was blocked");
+				if (beforeResult.terminate === true) {
+					result.terminate = true;
+				}
 				return {
 					kind: "immediate",
-					result: createErrorToolResult(beforeResult.reason || "Tool execution was blocked"),
+					result,
 					isError: true,
 				};
 			}
-		}
-		if (signal?.aborted) {
+		} catch (error) {
 			return {
 				kind: "immediate",
-				result: createErrorToolResult("Operation aborted"),
+				result: createErrorToolResult(error instanceof Error ? error.message : String(error)),
 				isError: true,
 			};
 		}
-		return {
-			kind: "prepared",
-			toolCall,
-			tool,
-			args: validatedArgs,
-		};
-	} catch (error) {
+	}
+	if (signal?.aborted) {
 		return {
 			kind: "immediate",
-			result: createErrorToolResult(error instanceof Error ? error.message : String(error)),
+			result: createErrorToolResult("Operation aborted"),
 			isError: true,
 		};
 	}
+	return undefined;
 }
 
 async function executePreparedToolCall(
@@ -672,27 +761,25 @@ async function executePreparedToolCall(
 ): Promise<ExecutedToolCallOutcome> {
 	const updateEvents: Promise<void>[] = [];
 	let acceptingUpdates = true;
+	const onUpdate = (partialResult: AgentToolResult<any>) => {
+		if (!acceptingUpdates) return;
+		updateEvents.push(
+			Promise.resolve(
+				emit({
+					type: "tool_execution_update",
+					toolCallId: prepared.toolCall.id,
+					toolName: prepared.toolCall.name,
+					args: toolCallEventArgs(prepared.toolCall),
+					partialResult,
+				}),
+			),
+		);
+	};
 
 	try {
-		const result = await prepared.tool.execute(
-			prepared.toolCall.id,
-			prepared.args as never,
-			signal,
-			(partialResult) => {
-				if (!acceptingUpdates) return;
-				updateEvents.push(
-					Promise.resolve(
-						emit({
-							type: "tool_execution_update",
-							toolCallId: prepared.toolCall.id,
-							toolName: prepared.toolCall.name,
-							args: prepared.toolCall.arguments,
-							partialResult,
-						}),
-					),
-				);
-			},
-		);
+		const result = isPreparedJsonToolCall(prepared)
+			? await prepared.tool.execute(prepared.toolCall.id, prepared.args as never, signal, onUpdate)
+			: await prepared.tool.execute(prepared.toolCall.id, prepared.args, signal, onUpdate);
 		acceptingUpdates = false;
 		await Promise.all(updateEvents);
 		return { result, isError: false };
@@ -737,6 +824,7 @@ async function finalizeExecutedToolCall(
 					...result,
 					content: afterResult.content ?? result.content,
 					details: afterResult.details ?? result.details,
+					usage: afterResult.usage ?? result.usage,
 					terminate: afterResult.terminate ?? result.terminate,
 				};
 				isError = afterResult.isError ?? isError;
@@ -780,6 +868,7 @@ function createToolResultMessage(finalized: FinalizedToolCallOutcome): ToolResul
 		// so the null never enters session history or provider payloads.
 		content: finalized.result.content ?? [],
 		details: finalized.result.details,
+		usage: finalized.result.usage,
 		...(finalized.result.addedToolNames?.length ? { addedToolNames: finalized.result.addedToolNames } : {}),
 		isError: finalized.isError,
 		timestamp: Date.now(),

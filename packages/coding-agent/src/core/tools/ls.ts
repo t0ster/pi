@@ -1,5 +1,5 @@
 import { readdir as fsReaddir, stat as fsStat } from "node:fs/promises";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { JsonAgentTool } from "@earendil-works/pi-agent-core";
 import { Text } from "@earendil-works/pi-tui";
 import nodePath from "path";
 import { type Static, Type } from "typebox";
@@ -15,6 +15,11 @@ const lsSchema = Type.Object({
 	path: Type.Optional(Type.String({ description: "Directory to list (default: current directory)" })),
 	limit: Type.Optional(Type.Number({ description: "Maximum number of entries to return (default: 500)" })),
 });
+
+export const lsToolSystemPromptContribution = {
+	snippet: "List directory contents",
+	guidelines: [],
+} as const;
 
 export type LsToolInput = Static<typeof lsSchema>;
 
@@ -101,7 +106,7 @@ export function createLsToolDefinition(
 		name: "ls",
 		label: "ls",
 		description: `List directory contents. Returns entries sorted alphabetically, with '/' suffix for directories. Includes dotfiles. Output is truncated to ${DEFAULT_LIMIT} entries or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first).`,
-		promptSnippet: "List directory contents",
+		promptSnippet: lsToolSystemPromptContribution.snippet,
 		parameters: lsSchema,
 		async execute(
 			_toolCallId,
@@ -220,6 +225,6 @@ export function createLsToolDefinition(
 	};
 }
 
-export function createLsTool(cwd: string, options?: LsToolOptions): AgentTool<typeof lsSchema> {
+export function createLsTool(cwd: string, options?: LsToolOptions): JsonAgentTool<typeof lsSchema> {
 	return wrapToolDefinition(createLsToolDefinition(cwd, options));
 }

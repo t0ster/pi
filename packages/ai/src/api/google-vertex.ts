@@ -24,6 +24,7 @@ import type {
 	ThinkingContent,
 	ToolCall,
 } from "../types.ts";
+import { requireJsonTools } from "../types.ts";
 import { formatProviderError, normalizeProviderError } from "../utils/error-body.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { providerHeadersToRecord } from "../utils/headers.ts";
@@ -35,8 +36,10 @@ import {
 	convertTools,
 	isThinkingPart,
 	mapStopReason,
-	mapToolChoice,
+	resolveGoogleFunctionCallingMode,
 	retainThoughtSignature,
+	retryGoogleRequest,
+	supportsGoogleStrictToolSampling,
 } from "./google-shared.ts";
 import { buildBaseOptions } from "./simple-options.ts";
 
@@ -87,11 +90,14 @@ export const stream: StreamFunction<"google-vertex", GoogleVertexOptions> = (
 				totalTokens: 0,
 				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 			},
-			stopReason: "stop",
+			stopReason: "pending",
 			timestamp: Date.now(),
 		};
 
 		try {
+			if (options?.fetch && options.fetch !== globalThis.fetch) {
+				throw new Error("Custom fetch is not supported by the Google Vertex adapter");
+			}
 			const apiKey = resolveApiKey(options);
 			// Create the client using either a Vertex API key, if provided, or ADC with project and location
 			const client = apiKey
@@ -102,7 +108,7 @@ export const stream: StreamFunction<"google-vertex", GoogleVertexOptions> = (
 			if (nextParams !== undefined) {
 				params = nextParams as GenerateContentParameters;
 			}
-			const googleStream = await client.models.generateContentStream(params);
+			const googleStream = await retryGoogleRequest(() => client.models.generateContentStream(params), options);
 
 			stream.push({ type: "start", partial: output });
 			let currentBlock: TextContent | ThinkingContent | null = null;
@@ -207,6 +213,7 @@ export const stream: StreamFunction<"google-vertex", GoogleVertexOptions> = (
 								type: "toolCall",
 								id: toolCallId,
 								name: part.functionCall.name || "",
+								inputType: "json",
 								arguments: (part.functionCall.args as Record<string, any>) ?? {},
 								...(part.thoughtSignature && { thoughtSignature: part.thoughtSignature }),
 							};
@@ -225,8 +232,9 @@ export const stream: StreamFunction<"google-vertex", GoogleVertexOptions> = (
 				}
 
 				if (candidate?.finishReason) {
+					output.rawStopReason = candidate.finishReason;
 					output.stopReason = mapStopReason(candidate.finishReason);
-					if (output.content.some((b) => b.type === "toolCall")) {
+					if (output.content.some((b) => b.type === "toolCall") && output.stopReason === "stop") {
 						output.stopReason = "toolUse";
 					}
 				}
@@ -275,8 +283,14 @@ export const stream: StreamFunction<"google-vertex", GoogleVertexOptions> = (
 				throw new Error("Request was aborted");
 			}
 
+			if (output.stopReason === "pending") {
+				throw new Error("Google Vertex stream ended without a finish reason");
+			}
 			if (output.stopReason === "aborted" || output.stopReason === "error") {
-				throw new Error("An unknown error occurred");
+				const errorMessage = output.rawStopReason
+					? `Provider stopped with: ${output.rawStopReason}`
+					: "An unknown error occurred";
+				throw new Error(errorMessage);
 			}
 
 			stream.push({ type: "done", reason: output.stopReason, message: output });
@@ -445,6 +459,7 @@ function buildParams(
 	options: GoogleVertexOptions = {},
 ): GenerateContentParameters {
 	const contents = convertMessages(model, context);
+	const jsonTools = requireJsonTools(context.tools, "Google Vertex");
 
 	const generationConfig: GenerateContentConfig = {};
 	if (options.temperature !== undefined) {
@@ -454,22 +469,18 @@ function buildParams(
 		generationConfig.maxOutputTokens = options.maxTokens;
 	}
 
+	const supportsStrictMode = supportsGoogleStrictToolSampling(model.id);
+	const functionCallingMode = jsonTools?.length
+		? resolveGoogleFunctionCallingMode(jsonTools, options.toolChoice, supportsStrictMode)
+		: undefined;
 	const config: GenerateContentConfig = {
 		...(Object.keys(generationConfig).length > 0 && generationConfig),
 		...(context.systemPrompt && { systemInstruction: sanitizeSurrogates(context.systemPrompt) }),
-		...(context.tools && context.tools.length > 0 && { tools: convertTools(context.tools) }),
+		...(jsonTools?.length ? { tools: convertTools(jsonTools, false, supportsStrictMode) } : {}),
+		...(functionCallingMode !== undefined && {
+			toolConfig: { functionCallingConfig: { mode: functionCallingMode } },
+		}),
 	};
-
-	if (context.tools && context.tools.length > 0 && options.toolChoice) {
-		config.toolConfig = {
-			functionCallingConfig: {
-				mode: mapToolChoice(options.toolChoice),
-			},
-		};
-	} else {
-		config.toolConfig = undefined;
-	}
-
 	if (options.thinking?.enabled && model.reasoning) {
 		const thinkingConfig: ThinkingConfig = { includeThoughts: true };
 		if (options.thinking.level !== undefined) {

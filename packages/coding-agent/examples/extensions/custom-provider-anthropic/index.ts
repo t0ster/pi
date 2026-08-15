@@ -31,10 +31,13 @@ import {
 	calculateCost,
 	createAssistantMessageEventStream,
 	type ImageContent,
+	type JsonTool,
 	type Message,
 	type Model,
 	type OAuthCredentials,
 	type OAuthLoginCallbacks,
+	requireJsonToolCall,
+	requireJsonTools,
 	type SimpleStreamOptions,
 	type StopReason,
 	type TextContent,
@@ -124,7 +127,7 @@ async function loginAnthropic(callbacks: OAuthLoginCallbacks): Promise<OAuthCred
 	};
 }
 
-async function refreshAnthropicToken(credentials: OAuthCredentials): Promise<OAuthCredentials> {
+async function refreshAnthropicToken(credentials: OAuthCredentials, signal: AbortSignal): Promise<OAuthCredentials> {
 	const response = await fetch(TOKEN_URL, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
@@ -133,6 +136,7 @@ async function refreshAnthropicToken(credentials: OAuthCredentials): Promise<OAu
 			client_id: CLIENT_ID,
 			refresh_token: credentials.refresh,
 		}),
+		signal,
 	});
 
 	if (!response.ok) {
@@ -254,11 +258,12 @@ function convertMessages(messages: Message[], isOAuth: boolean, _tools?: Tool[])
 						blocks.push({ type: "text", text: sanitizeSurrogates(block.thinking) });
 					}
 				} else if (block.type === "toolCall") {
+					const toolCall = requireJsonToolCall(block, "Custom Anthropic provider message replay");
 					blocks.push({
 						type: "tool_use",
-						id: block.id,
-						name: isOAuth ? toClaudeCodeName(block.name) : block.name,
-						input: block.arguments,
+						id: toolCall.id,
+						name: isOAuth ? toClaudeCodeName(toolCall.name) : toolCall.name,
+						input: toolCall.arguments,
 					});
 				}
 			}
@@ -304,7 +309,7 @@ function convertMessages(messages: Message[], isOAuth: boolean, _tools?: Tool[])
 	return params;
 }
 
-function convertTools(tools: Tool[], isOAuth: boolean): any[] {
+function convertTools(tools: JsonTool[], isOAuth: boolean): any[] {
 	return tools.map((tool) => ({
 		name: isOAuth ? toClaudeCodeName(tool.name) : tool.name,
 		description: tool.description,
@@ -353,7 +358,7 @@ function streamCustomAnthropic(
 				totalTokens: 0,
 				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 			},
-			stopReason: "stop",
+			stopReason: "pending",
 			timestamp: Date.now(),
 		};
 
@@ -423,8 +428,9 @@ function streamCustomAnthropic(
 				];
 			}
 
-			if (context.tools) {
-				params.tools = convertTools(context.tools, isOAuth);
+			const jsonTools = requireJsonTools(context.tools, "Custom Anthropic provider");
+			if (jsonTools) {
+				params.tools = convertTools(jsonTools, isOAuth);
 			}
 
 			// Handle thinking/reasoning
@@ -476,6 +482,7 @@ function streamCustomAnthropic(
 							name: isOAuth
 								? fromClaudeCodeName(event.content_block.name, context.tools)
 								: event.content_block.name,
+							inputType: "json",
 							arguments: {},
 							partialJson: "",
 							index: event.index,
@@ -499,9 +506,10 @@ function streamCustomAnthropic(
 							partial: output,
 						});
 					} else if (event.delta.type === "input_json_delta" && block.type === "toolCall") {
+						const toolCall = requireJsonToolCall(block, "Custom Anthropic provider streaming");
 						(block as any).partialJson += event.delta.partial_json;
 						try {
-							block.arguments = JSON.parse((block as any).partialJson);
+							toolCall.arguments = JSON.parse((block as any).partialJson);
 						} catch {}
 						stream.push({
 							type: "toolcall_delta",
@@ -523,11 +531,12 @@ function streamCustomAnthropic(
 					} else if (block.type === "thinking") {
 						stream.push({ type: "thinking_end", contentIndex: index, content: block.thinking, partial: output });
 					} else if (block.type === "toolCall") {
+						const toolCall = requireJsonToolCall(block, "Custom Anthropic provider streaming");
 						try {
-							block.arguments = JSON.parse((block as any).partialJson);
+							toolCall.arguments = JSON.parse((block as any).partialJson);
 						} catch {}
 						delete (block as any).partialJson;
-						stream.push({ type: "toolcall_end", contentIndex: index, toolCall: block, partial: output });
+						stream.push({ type: "toolcall_end", contentIndex: index, toolCall, partial: output });
 					}
 				} else if (event.type === "message_delta") {
 					if ((event.delta as any).stop_reason) {
@@ -546,8 +555,14 @@ function streamCustomAnthropic(
 			if (options?.signal?.aborted) {
 				throw new Error("Request was aborted");
 			}
+			if (output.stopReason === "pending") {
+				throw new Error("Anthropic stream ended without a stop reason");
+			}
+			if (output.stopReason === "error" || output.stopReason === "aborted") {
+				throw new Error(output.errorMessage || "An unknown error occurred");
+			}
 
-			stream.push({ type: "done", reason: output.stopReason as "stop" | "length" | "toolUse", message: output });
+			stream.push({ type: "done", reason: output.stopReason, message: output });
 			stream.end();
 		} catch (error) {
 			for (const block of output.content) delete (block as any).index;

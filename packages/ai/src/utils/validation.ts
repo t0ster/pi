@@ -1,7 +1,8 @@
 import { Compile } from "typebox/compile";
 import type { TLocalizedValidationError } from "typebox/error";
 import { Value } from "typebox/value";
-import type { Tool, ToolCall } from "../types.ts";
+import type { JsonTool, ToolCall } from "../types.ts";
+import { requireJsonToolCall } from "../types.ts";
 
 const validatorCache = new WeakMap<object, ReturnType<typeof Compile>>();
 const TYPEBOX_KIND = Symbol.for("TypeBox.Kind");
@@ -9,6 +10,7 @@ const TYPEBOX_KIND = Symbol.for("TypeBox.Kind");
 interface JsonSchemaObject {
 	type?: string | string[];
 	properties?: Record<string, JsonSchemaObject>;
+	required?: string[];
 	items?: JsonSchemaObject | JsonSchemaObject[];
 	additionalProperties?: boolean | JsonSchemaObject;
 	allOf?: JsonSchemaObject[];
@@ -49,7 +51,7 @@ function matchesJsonType(value: unknown, type: string): boolean {
 
 function getSubSchemaValidator(schema: JsonSchemaObject): ReturnType<typeof Compile> | undefined {
 	try {
-		return getValidator(schema as Tool["parameters"]);
+		return getValidator(schema as JsonTool["parameters"]);
 	} catch {
 		return undefined;
 	}
@@ -173,6 +175,13 @@ function applySchemaArrayCoercion(value: unknown[], schema: JsonSchemaObject): v
 
 function coerceWithUnionSchema(value: unknown, schemas: JsonSchemaObject[]): unknown {
 	for (const schema of schemas) {
+		const validator = getSubSchemaValidator(schema);
+		if (validator?.Check(value)) {
+			return value;
+		}
+	}
+
+	for (const schema of schemas) {
 		const candidate = structuredClone(value);
 		const coerced = coerceWithJsonSchema(candidate, schema);
 		const validator = getSubSchemaValidator(schema);
@@ -229,7 +238,38 @@ function coerceWithJsonSchema(value: unknown, schema: JsonSchemaObject): unknown
 	return nextValue;
 }
 
-function getValidator(schema: Tool["parameters"]): ReturnType<typeof Compile> {
+function normalizeOptionalNulls(value: unknown, schema: JsonSchemaObject): void {
+	if (Array.isArray(value)) {
+		if (Array.isArray(schema.items)) {
+			for (let index = 0; index < value.length; index++) {
+				const itemSchema = schema.items[index];
+				if (itemSchema) normalizeOptionalNulls(value[index], itemSchema);
+			}
+		} else if (schema.items) {
+			for (const item of value) normalizeOptionalNulls(item, schema.items);
+		}
+		return;
+	}
+	if (typeof value !== "object" || value === null || !schema.properties) return;
+
+	const object = value as Record<string, unknown>;
+	const required = new Set(schema.required ?? []);
+	for (const [key, propertySchema] of Object.entries(schema.properties)) {
+		if (!(key in object)) continue;
+		if (
+			object[key] === null &&
+			!required.has(key) &&
+			typeof (propertySchema as { $ref?: unknown }).$ref !== "string" &&
+			getSubSchemaValidator(propertySchema)?.Check(null) === false
+		) {
+			delete object[key];
+		} else {
+			normalizeOptionalNulls(object[key], propertySchema);
+		}
+	}
+}
+
+function getValidator(schema: JsonTool["parameters"]): ReturnType<typeof Compile> {
 	const key = schema as object;
 	const cached = validatorCache.get(key);
 	if (cached) {
@@ -260,7 +300,7 @@ function formatValidationPath(error: TLocalizedValidationError): string {
  * @returns The validated arguments
  * @throws Error if tool is not found or validation fails
  */
-export function validateToolCall(tools: Tool[], toolCall: ToolCall): any {
+export function validateToolCall(tools: JsonTool[], toolCall: ToolCall): any {
 	const tool = tools.find((t) => t.name === toolCall.name);
 	if (!tool) {
 		throw new Error(`Tool "${toolCall.name}" not found`);
@@ -275,8 +315,10 @@ export function validateToolCall(tools: Tool[], toolCall: ToolCall): any {
  * @returns The validated (and potentially coerced) arguments
  * @throws Error with formatted message if validation fails
  */
-export function validateToolArguments(tool: Tool, toolCall: ToolCall): any {
-	const args = structuredClone(toolCall.arguments);
+export function validateToolArguments(tool: JsonTool, toolCall: ToolCall): any {
+	const jsonToolCall = requireJsonToolCall(toolCall, "Tool validation");
+	const args = structuredClone(jsonToolCall.arguments);
+	normalizeOptionalNulls(args, tool.parameters as JsonSchemaObject);
 	Value.Convert(tool.parameters, args);
 
 	const validator = getValidator(tool.parameters);
@@ -304,7 +346,7 @@ export function validateToolArguments(tool: Tool, toolCall: ToolCall): any {
 			.map((error) => `  - ${formatValidationPath(error)}: ${error.message}`)
 			.join("\n") || "Unknown validation error";
 
-	const errorMessage = `Validation failed for tool "${toolCall.name}":\n${errors}\n\nReceived arguments:\n${JSON.stringify(toolCall.arguments, null, 2)}`;
+	const errorMessage = `Validation failed for tool "${toolCall.name}":\n${errors}\n\nReceived arguments:\n${JSON.stringify(jsonToolCall.arguments, null, 2)}`;
 
 	throw new Error(errorMessage);
 }

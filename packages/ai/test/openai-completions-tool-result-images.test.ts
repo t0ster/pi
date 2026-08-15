@@ -26,6 +26,7 @@ const compat: Omit<Required<OpenAICompletionsCompat>, "deferredToolsMode"> & {
 	supportsDeveloperRole: true,
 	supportsReasoningEffort: true,
 	supportsUsageInStreaming: true,
+	supportsFinishReason: true,
 	maxTokensField: "max_completion_tokens",
 	requiresToolResultName: false,
 	requiresAssistantAfterToolResult: false,
@@ -35,8 +36,11 @@ const compat: Omit<Required<OpenAICompletionsCompat>, "deferredToolsMode"> & {
 	openRouterRouting: {},
 	vercelGatewayRouting: {},
 	chatTemplateKwargs: {},
+	chatTemplateArgs: {},
 	zaiToolStream: false,
+	supportsThinkingTokenBudget: false,
 	supportsStrictMode: true,
+	supportsOpenAIGrammarTools: false,
 	cacheControlFormat: "anthropic",
 	sendSessionAffinityHeaders: false,
 	sessionAffinityFormat: "openai",
@@ -81,8 +85,8 @@ describe("openai-completions convertMessages", () => {
 		const assistantMessage: AssistantMessage = {
 			role: "assistant",
 			content: [
-				{ type: "toolCall", id: "tool-1", name: "read", arguments: { path: "img-1.png" } },
-				{ type: "toolCall", id: "tool-2", name: "read", arguments: { path: "img-2.png" } },
+				{ type: "toolCall", inputType: "json", id: "tool-1", name: "read", arguments: { path: "img-1.png" } },
+				{ type: "toolCall", inputType: "json", id: "tool-2", name: "read", arguments: { path: "img-2.png" } },
 			],
 			api: model.api,
 			provider: model.provider,
@@ -126,7 +130,7 @@ describe("openai-completions convertMessages", () => {
 		const now = Date.now();
 		const assistantMessage: AssistantMessage = {
 			role: "assistant",
-			content: [{ type: "toolCall", id: "tool-1", name: "bash", arguments: { command: "true" } }],
+			content: [{ type: "toolCall", inputType: "json", id: "tool-1", name: "bash", arguments: { command: "true" } }],
 			api: model.api,
 			provider: model.provider,
 			model: model.id,

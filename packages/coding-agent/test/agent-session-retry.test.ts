@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Agent, type AgentEvent, type AgentTool } from "@earendil-works/pi-agent-core";
+import { Agent, type AgentEvent, type JsonAgentTool } from "@earendil-works/pi-agent-core";
 import { type AssistantMessage, type AssistantMessageEvent, EventStream, getModel } from "@earendil-works/pi-ai/compat";
 import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -203,7 +203,7 @@ describe("AgentSession retry", () => {
 		const agent = new Agent({
 			getApiKey: () => "test-key",
 			initialState: { model, systemPrompt: "Test", tools: [] },
-			streamFn,
+			streamFn: streamFn,
 		});
 		const sessionManager = SessionManager.inMemory();
 		const settingsManager = SettingsManager.create(tempDir, tempDir);
@@ -240,7 +240,7 @@ describe("AgentSession retry", () => {
 		let callCount = 0;
 		const toolExecuted = { value: false };
 
-		const echoTool: AgentTool = {
+		const echoTool: JsonAgentTool = {
 			name: "echo",
 			label: "Echo",
 			description: "Echo text back",
@@ -274,7 +274,13 @@ describe("AgentSession retry", () => {
 							stopReason: "toolUse",
 							content: [
 								{ type: "text", text: "Looking that up now." },
-								{ type: "toolCall", id: "call_1", name: "echo", arguments: { text: "hello" } },
+								{
+									type: "toolCall",
+									inputType: "json",
+									id: "call_1",
+									name: "echo",
+									arguments: { text: "hello" },
+								},
 							],
 						};
 						stream.push({ type: "start", partial: msg });

@@ -3,7 +3,7 @@
  * Validates that the faux provider and session factory work correctly.
  */
 
-import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { JsonAgentTool } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
@@ -49,7 +49,7 @@ describe("test harness", () => {
 
 	it("tool call response triggers tool execution", async () => {
 		let toolExecuted = false;
-		const echoTool: AgentTool = {
+		const echoTool: JsonAgentTool = {
 			name: "echo",
 			label: "Echo",
 			description: "Echo back",
@@ -86,6 +86,20 @@ describe("test harness", () => {
 		expect(assistantMessages).toHaveLength(1);
 		expect(assistantMessages[0].stopReason).toBe("error");
 		expect(assistantMessages[0].errorMessage).toBe("something broke");
+	});
+
+	it("turns a pending terminal response into an error", async () => {
+		harness = await createHarness({
+			responses: [{ text: "partial", stopReason: "pending" }],
+			settings: { retry: { enabled: false } },
+		});
+
+		await harness.session.prompt("hi");
+
+		const assistantMessages = harness.session.messages.filter((m): m is AssistantMessage => m.role === "assistant");
+		expect(assistantMessages).toHaveLength(1);
+		expect(assistantMessages[0].stopReason).toBe("error");
+		expect(assistantMessages[0].errorMessage).toBe("Faux response ended without a stop reason");
 	});
 
 	it("retry on transient error", async () => {
@@ -195,7 +209,7 @@ describe("test harness", () => {
 	});
 
 	it("streams tool call deltas", async () => {
-		const echoTool: AgentTool = {
+		const echoTool: JsonAgentTool = {
 			name: "echo",
 			label: "Echo",
 			description: "Echo back",
@@ -222,7 +236,7 @@ describe("test harness", () => {
 	});
 
 	it("streams thinking then text then tool call in order", async () => {
-		const echoTool: AgentTool = {
+		const echoTool: JsonAgentTool = {
 			name: "echo",
 			label: "Echo",
 			description: "Echo back",

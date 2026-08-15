@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { type PiMessagesOptions, stream, streamSimple } from "../src/api/pi-messages.ts";
-import type { Api, AssistantMessageEvent, Context, Model } from "../src/types.ts";
+import type { Api, AssistantMessageEvent, Context, Model, StopReason } from "../src/types.ts";
 
 type RecordedRequest = {
 	url: string;
@@ -102,13 +102,19 @@ describe("pi-messages", () => {
 				{ type: "text_delta", contentIndex: 0, delta: "Hel" },
 				{ type: "text_delta", contentIndex: 0, delta: "lo" },
 				{ type: "text_end", contentIndex: 0, content: "Hello" },
-				{ type: "toolcall_start", contentIndex: 1, id: "call_1", toolName: "read" },
+				{ type: "toolcall_start", contentIndex: 1, id: "call_1", toolName: "read", inputType: "json" },
 				{ type: "toolcall_delta", contentIndex: 1, delta: '{"path":' },
 				{ type: "toolcall_delta", contentIndex: 1, delta: '"a.txt"}' },
 				{
 					type: "toolcall_end",
 					contentIndex: 1,
-					toolCall: { type: "toolCall", id: "call_1", name: "read", arguments: { path: "a.txt" } },
+					toolCall: {
+						type: "toolCall",
+						id: "call_1",
+						name: "read",
+						inputType: "json",
+						arguments: { path: "a.txt" },
+					},
 				},
 				{ type: "done", reason: "toolUse", usage, responseId: "resp_1" },
 			],
@@ -116,6 +122,7 @@ describe("pi-messages", () => {
 		const model = createModel(baseUrl);
 
 		const events: AssistantMessageEvent[] = [];
+		const partialStopReasons: StopReason[] = [];
 		const eventStream = stream(model, context, {
 			apiKey: "test-key",
 			sessionId: "session-1",
@@ -124,10 +131,14 @@ describe("pi-messages", () => {
 			headers: { "x-custom": "1" },
 		});
 		for await (const event of eventStream) {
+			if ("partial" in event) {
+				partialStopReasons.push(event.partial.stopReason);
+			}
 			events.push(event);
 		}
 		const message = await eventStream.result();
 
+		expect(partialStopReasons[0]).toBe("pending");
 		expect(message.stopReason).toBe("toolUse");
 		expect(message.usage).toEqual(usage);
 		expect(message.responseId).toBe("resp_1");
@@ -135,7 +146,7 @@ describe("pi-messages", () => {
 		expect(message.provider).toBe("radius");
 		expect(message.content).toEqual([
 			{ type: "text", text: "Hello", textSignature: undefined },
-			{ type: "toolCall", id: "call_1", name: "read", arguments: { path: "a.txt" } },
+			{ type: "toolCall", id: "call_1", name: "read", inputType: "json", arguments: { path: "a.txt" } },
 		]);
 		expect(events.some((event) => event.type === "text_delta")).toBe(true);
 		expect(events.filter((event) => event.type === "toolcall_end")).toHaveLength(1);
@@ -150,6 +161,47 @@ describe("pi-messages", () => {
 			context,
 			options: { maxTokens: 100, sessionId: "session-1", toolChoice: "auto" },
 		});
+	});
+
+	it("streams freeform tool-call input", async () => {
+		const { baseUrl } = await startServer({
+			events: [
+				{ type: "start" },
+				{
+					type: "toolcall_start",
+					contentIndex: 0,
+					id: "call_1",
+					toolName: "apply_patch",
+					inputType: "freeform",
+				},
+				{ type: "toolcall_delta", contentIndex: 0, delta: "*** Begin " },
+				{ type: "toolcall_delta", contentIndex: 0, delta: "Patch" },
+				{
+					type: "toolcall_end",
+					contentIndex: 0,
+					toolCall: {
+						type: "toolCall",
+						id: "call_1",
+						name: "apply_patch",
+						inputType: "freeform",
+						input: "*** Begin Patch",
+					},
+				},
+				{ type: "done", reason: "toolUse", usage },
+			],
+		});
+
+		const message = await stream(createModel(baseUrl), context, { apiKey: "test-key" }).result();
+
+		expect(message.content).toEqual([
+			{
+				type: "toolCall",
+				id: "call_1",
+				name: "apply_patch",
+				inputType: "freeform",
+				input: "*** Begin Patch",
+			},
+		]);
 	});
 
 	it("appends debug=1 and reports response headers via onResponse", async () => {

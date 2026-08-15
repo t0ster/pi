@@ -3,7 +3,7 @@ import { Text, type TUI } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { beforeAll, describe, expect, test } from "vitest";
 import { getReadmePath } from "../src/config.ts";
-import type { ToolDefinition } from "../src/core/extensions/types.ts";
+import type { FreeformToolDefinition, JsonToolDefinition, ToolDefinition } from "../src/core/extensions/types.ts";
 import { type BashOperations, createBashToolDefinition } from "../src/core/tools/bash.ts";
 import { createReadTool, createReadToolDefinition } from "../src/core/tools/read.ts";
 import { createWriteToolDefinition } from "../src/core/tools/write.ts";
@@ -11,12 +11,26 @@ import { ToolExecutionComponent } from "../src/modes/interactive/components/tool
 import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
 
-function createBaseToolDefinition(name = "custom_tool"): ToolDefinition {
+function createBaseToolDefinition(name = "custom_tool"): JsonToolDefinition {
 	return {
 		name,
 		label: name,
 		description: "custom tool",
 		parameters: Type.Any(),
+		execute: async () => ({
+			content: [{ type: "text", text: "ok" }],
+			details: {},
+		}),
+	};
+}
+
+function createFreeformToolDefinition(name = "freeform_tool"): FreeformToolDefinition {
+	return {
+		type: "freeform",
+		name,
+		label: name,
+		description: "freeform tool",
+		format: { type: "grammar", syntax: "lark", definition: "start: /.+/" },
 		execute: async () => ({
 			content: [{ type: "text", text: "ok" }],
 			details: {},
@@ -142,7 +156,7 @@ describe("ToolExecutionComponent parity", () => {
 				return { exitCode: 0 };
 			},
 		};
-		const tool = createBashToolDefinition(process.cwd(), { operations });
+		const tool = createBashToolDefinition(process.cwd(), { operations, exposeSessionEnvironment: false });
 		const promise = tool.execute(
 			"tool-bash-1",
 			{ command: "sleep 10" },
@@ -163,7 +177,7 @@ describe("ToolExecutionComponent parity", () => {
 				return { exitCode: 0 };
 			},
 		};
-		const tool = createBashToolDefinition(process.cwd(), { operations });
+		const tool = createBashToolDefinition(process.cwd(), { operations, exposeSessionEnvironment: false });
 		const result = await tool.execute(
 			"tool-bash-1b",
 			{ command: "generate output" },
@@ -296,7 +310,7 @@ describe("ToolExecutionComponent parity", () => {
 
 	test("shares renderer state across custom call and result slots", () => {
 		type RenderState = { token?: string };
-		const toolDefinition: ToolDefinition<any, unknown, RenderState> = {
+		const toolDefinition: JsonToolDefinition<any, unknown, RenderState> = {
 			...createBaseToolDefinition(),
 			renderCall: (_args, _theme, context) => {
 				context.state.token ??= "shared-token";
@@ -323,7 +337,7 @@ describe("ToolExecutionComponent parity", () => {
 	});
 
 	test("exposes args in render result context", () => {
-		const toolDefinition: ToolDefinition = {
+		const toolDefinition: JsonToolDefinition = {
 			...createBaseToolDefinition(),
 			renderCall: () => new Text("call", 0, 0),
 			renderResult: (_result, _options, _theme, context) =>
@@ -344,7 +358,59 @@ describe("ToolExecutionComponent parity", () => {
 		expect(rendered).toContain("arg:bar");
 	});
 
-	test("falls back when custom renderers are absent", () => {
+	test("passes string input to freeform call renderers", () => {
+		let renderedInput: string | undefined;
+		let contextInput: string | undefined;
+		const toolDefinition: FreeformToolDefinition<unknown, { seen?: boolean }> = {
+			...createFreeformToolDefinition(),
+			renderCall: (input, _theme, context) => {
+				renderedInput = input;
+				contextInput = context.args;
+				return new Text(input, 0, 0);
+			},
+		};
+
+		const component = new ToolExecutionComponent(
+			"freeform_tool",
+			"tool-freeform-1",
+			"raw freeform input",
+			{ inputType: "freeform" },
+			toolDefinition,
+			createFakeTui(),
+			process.cwd(),
+		);
+
+		expect(stripAnsi(component.render(120).join("\n"))).toContain("raw freeform input");
+		expect(renderedInput).toBe("raw freeform input");
+		expect(contextInput).toBe("raw freeform input");
+	});
+
+	test("updates freeform call renderers with latest streamed input", () => {
+		const seenInputs: string[] = [];
+		const toolDefinition: FreeformToolDefinition = {
+			...createFreeformToolDefinition(),
+			renderCall: (input) => {
+				seenInputs.push(input);
+				return new Text(input, 0, 0);
+			},
+		};
+
+		const component = new ToolExecutionComponent(
+			"freeform_tool",
+			"tool-freeform-2",
+			"partial",
+			{ inputType: "freeform" },
+			toolDefinition,
+			createFakeTui(),
+			process.cwd(),
+		);
+		component.updateArgs("partial plus delta");
+
+		expect(stripAnsi(component.render(120).join("\n"))).toContain("partial plus delta");
+		expect(seenInputs.at(-1)).toBe("partial plus delta");
+	});
+
+	test("collapses fallback results until expanded", () => {
 		const toolDefinition: ToolDefinition = {
 			...createBaseToolDefinition(),
 		};
@@ -358,10 +424,20 @@ describe("ToolExecutionComponent parity", () => {
 			createFakeTui(),
 			process.cwd(),
 		);
-		component.updateResult({ content: [{ type: "text", text: "done" }], details: {}, isError: false }, false);
-		const rendered = stripAnsi(component.render(120).join("\n"));
-		expect(rendered).toContain("custom_tool");
-		expect(rendered).toContain("done");
+		const output = Array.from({ length: 15 }, (_, index) => `line-${index + 1}`).join("\n");
+		component.updateResult({ content: [{ type: "text", text: output }], details: {}, isError: false }, false);
+
+		const collapsed = stripAnsi(component.render(120).join("\n"));
+		expect(collapsed).toContain("custom_tool");
+		expect(collapsed).toContain("line-10");
+		expect(collapsed).not.toContain("line-11");
+		expect(collapsed).toContain("5 more lines");
+		expect(collapsed).toContain("to expand");
+
+		component.setExpanded(true);
+		const expanded = stripAnsi(component.render(120).join("\n"));
+		expect(expanded).toContain("line-15");
+		expect(expanded).not.toContain("more lines");
 	});
 
 	test("trims trailing blank display lines from write previews", () => {
@@ -459,6 +535,14 @@ describe("ToolExecutionComponent parity", () => {
 			content: "Hidden resource instructions",
 			compact: "read resource .pi/AGENTS.md",
 			hidden: "Hidden resource instructions",
+			absent: undefined,
+		},
+		{
+			title: "AGENTS.override.md",
+			path: join(process.cwd(), ".pi", "AGENTS.override.md"),
+			content: "Hidden override instructions",
+			compact: "read resource .pi/AGENTS.override.md",
+			hidden: "Hidden override instructions",
 			absent: undefined,
 		},
 		{

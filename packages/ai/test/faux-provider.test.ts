@@ -61,7 +61,7 @@ describe("faux provider", () => {
 
 		expect(response.content).toEqual([
 			{ type: "thinking", thinking: "think" },
-			{ type: "toolCall", id: expect.any(String), name: "echo", arguments: { text: "hi" } },
+			{ type: "toolCall", inputType: "json", id: expect.any(String), name: "echo", arguments: { text: "hi" } },
 			{ type: "text", text: "done" },
 		]);
 		expect(response.stopReason).toBe("toolUse");
@@ -190,6 +190,24 @@ describe("faux provider", () => {
 		if (events[0].type === "error") {
 			expect(events[0].error.stopReason).toBe("error");
 			expect(events[0].error.errorMessage).toBe("boom");
+		}
+	});
+
+	it("rejects a queued response without a terminal stop reason", async () => {
+		const registration = registerFauxProvider();
+		registrations.push(registration);
+		registration.setResponses([fauxAssistantMessage("partial", { stopReason: "pending" })]);
+
+		const events = await collectEvents(
+			stream(registration.getModel(), { messages: [{ role: "user", content: "hi", timestamp: Date.now() }] }),
+		);
+
+		expect(events.some((event) => event.type === "done")).toBe(false);
+		const terminal = events.at(-1);
+		expect(terminal?.type).toBe("error");
+		if (terminal?.type === "error") {
+			expect(terminal.error.stopReason).toBe("error");
+			expect(terminal.error.errorMessage).toBe("Faux response ended without a stop reason");
 		}
 	});
 
@@ -374,6 +392,7 @@ describe("faux provider", () => {
 			stream(registration.getModel(), { messages: [{ role: "user", content: "hi", timestamp: Date.now() }] }),
 		);
 
+		expect(events[0]).toMatchObject({ type: "start", partial: { stopReason: "pending" } });
 		expect(events.map((event) => event.type)).toEqual([
 			"start",
 			"thinking_start",
@@ -553,6 +572,7 @@ describe("faux provider", () => {
 				content: [
 					{
 						type: "toolCall",
+						inputType: "json",
 						id: "tool-1",
 						name: "echo",
 						arguments: { text: "abcdefghijklmnopqrstuvwxyz", count: 123456789 },

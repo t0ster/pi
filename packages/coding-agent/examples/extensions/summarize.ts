@@ -1,4 +1,4 @@
-import { complete, getModel } from "@earendil-works/pi-ai/compat";
+import { uuidv7 } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, matchesKey, Text } from "@earendil-works/pi-tui";
@@ -58,7 +58,12 @@ const extractToolCallLines = (content: unknown): string[] => {
 			continue;
 		}
 
-		const args = block.arguments ?? {};
+		const args =
+			"inputType" in block && block.inputType === "freeform"
+				? { input: (block as unknown as { input: string }).input }
+				: "arguments" in block
+					? block.arguments
+					: {};
 		toolCalls.push(`Tool ${block.name} was called with args ${JSON.stringify(args)}`);
 	}
 
@@ -160,20 +165,13 @@ export default function (pi: ExtensionAPI) {
 				ctx.ui.notify("Preparing summary...", "info");
 			}
 
-			const model = getModel("openai", "gpt-5.2");
-			if (!model && ctx.hasUI) {
-				ctx.ui.notify("Model openai/gpt-5.2 not found", "warning");
+			const model = ctx.modelRegistry.find("openai", "gpt-5.2");
+			if (!model) {
+				if (ctx.hasUI) ctx.ui.notify("Model openai/gpt-5.2 not found", "warning");
+				return;
 			}
-
-			const auth = model ? await ctx.modelRegistry.getApiKeyAndHeaders(model) : undefined;
-			if (auth && !auth.ok && ctx.hasUI) {
-				ctx.ui.notify(auth.error, "warning");
-			}
-			if (auth?.ok && !auth.apiKey && ctx.hasUI) {
-				ctx.ui.notify("No API key for openai/gpt-5.2", "warning");
-			}
-
-			if (!model || !auth?.ok || !auth.apiKey) {
+			if (!ctx.modelRegistry.hasConfiguredAuth(model)) {
+				if (ctx.hasUI) ctx.ui.notify("No authentication configured for openai/gpt-5.2", "warning");
 				return;
 			}
 
@@ -185,14 +183,13 @@ export default function (pi: ExtensionAPI) {
 				},
 			];
 
-			const response = await complete(
+			const response = await ctx.modelRegistry.complete(
 				model,
 				{ messages: summaryMessages },
 				{
-					apiKey: auth.apiKey,
-					headers: auth.headers,
-					env: auth.env,
 					reasoningEffort: "high",
+					cacheRetention: "none",
+					sessionId: uuidv7(),
 				},
 			);
 

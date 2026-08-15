@@ -15,6 +15,8 @@ import type {
 	CacheRetention,
 	Context,
 	ImageContent,
+	JsonTool,
+	JsonToolCall,
 	Message,
 	Model,
 	ProviderEnv,
@@ -26,16 +28,19 @@ import type {
 	TextContent,
 	ThinkingContent,
 	Tool,
-	ToolCall,
 	ToolResultMessage,
 } from "../types.ts";
+import { requireJsonToolCall, requireJsonTools } from "../types.ts";
 import { splitDeferredTools } from "../utils/deferred-tools.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { parseJsonWithRepair, parseStreamingJson } from "../utils/json-parse.ts";
+import { getPiUserAgent } from "../utils/pi-user-agent.ts";
 import { getProviderEnvValue } from "../utils/provider-env.ts";
+import { retryProviderRequest } from "../utils/provider-retry.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 
+import { getJsonSchemaToolParameters, resolveJsonSchemaStrictSampling } from "./constrained-sampling.ts";
 import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./github-copilot-headers.ts";
 import { adjustMaxTokensForThinking, buildBaseOptions, clampMaxTokensToContext } from "./simple-options.ts";
 import { transformMessages } from "./transform-messages.ts";
@@ -178,6 +183,7 @@ function getAnthropicCompat(
 		supportsCacheControlOnTools: model.compat?.supportsCacheControlOnTools ?? true,
 		supportsTemperature: model.compat?.supportsTemperature ?? true,
 		allowEmptySignature: model.compat?.allowEmptySignature ?? false,
+		supportsStrictTools: model.compat?.supportsStrictTools ?? false,
 		supportsToolReferences: model.compat?.supportsToolReferences ?? defaultSupportsToolReferences(model),
 	};
 }
@@ -264,6 +270,20 @@ function mergeHeaders(...headerSources: (ProviderHeaders | undefined)[]): Provid
 		if (headers) {
 			Object.assign(merged, headers);
 		}
+	}
+	return merged;
+}
+
+function mergeClientHeaders(
+	model: Model<"anthropic-messages">,
+	...headerSources: (ProviderHeaders | undefined)[]
+): ProviderHeaders {
+	const merged = mergeHeaders(...headerSources);
+	if (model.provider === "kimi-coding") {
+		for (const name of Object.keys(merged)) {
+			if (name.toLowerCase() === "user-agent") delete merged[name];
+		}
+		merged["User-Agent"] = getPiUserAgent();
 	}
 	return merged;
 }
@@ -503,7 +523,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 				totalTokens: 0,
 				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 			},
-			stopReason: "stop",
+			stopReason: "pending",
 			timestamp: Date.now(),
 		};
 
@@ -536,6 +556,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 					options?.interleavedThinking ?? true,
 					shouldUseFineGrainedToolStreamingBeta(model, context),
 					options?.headers,
+					options?.fetch,
 					copilotDynamicHeaders,
 					cacheSessionId,
 				);
@@ -550,13 +571,20 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 			const requestOptions = {
 				...(options?.signal ? { signal: options.signal } : {}),
 				...(options?.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),
-				maxRetries: options?.maxRetries ?? 0,
+				maxRetries: 0,
 			};
-			const response = await client.messages.create({ ...params, stream: true }, requestOptions).asResponse();
+			const response = await retryProviderRequest(
+				() => client.messages.create({ ...params, stream: true }, requestOptions).asResponse(),
+				{
+					maxRetries: options?.maxRetries,
+					maxRetryDelayMs: options?.maxRetryDelayMs,
+					signal: options?.signal,
+				},
+			);
 			await options?.onResponse?.({ status: response.status, headers: headersToRecord(response.headers) }, model);
 			stream.push({ type: "start", partial: output });
 
-			type Block = (ThinkingContent | TextContent | (ToolCall & { partialJson: string })) & { index: number };
+			type Block = (ThinkingContent | TextContent | (JsonToolCall & { partialJson: string })) & { index: number };
 			const blocks = output.content as Block[];
 
 			for await (const event of iterateAnthropicEvents(response, options?.signal)) {
@@ -577,7 +605,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 					if (event.content_block.type === "text") {
 						const block: Block = {
 							type: "text",
-							text: "",
+							text: event.content_block.text ?? "",
 							index: event.index,
 						};
 						output.content.push(block);
@@ -585,8 +613,8 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 					} else if (event.content_block.type === "thinking") {
 						const block: Block = {
 							type: "thinking",
-							thinking: "",
-							thinkingSignature: "",
+							thinking: event.content_block.thinking ?? "",
+							thinkingSignature: event.content_block.signature ?? "",
 							index: event.index,
 						};
 						output.content.push(block);
@@ -608,6 +636,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 							name: isOAuth
 								? fromClaudeCodeName(event.content_block.name, context.tools)
 								: event.content_block.name,
+							inputType: "json",
 							arguments: (event.content_block.input as Record<string, any>) ?? {},
 							partialJson: "",
 							index: event.index,
@@ -695,6 +724,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 					}
 				} else if (event.type === "message_delta") {
 					if (event.delta.stop_reason) {
+						output.rawStopReason = event.delta.stop_reason;
 						const stopReasonResult = mapStopReason(event.delta.stop_reason, event.delta.stop_details);
 						output.stopReason = stopReasonResult.stopReason;
 						if (stopReasonResult.errorMessage) {
@@ -736,6 +766,9 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 				throw new Error("Request was aborted");
 			}
 
+			if (output.stopReason === "pending") {
+				throw new Error("Anthropic stream ended without a stop reason");
+			}
 			if (output.stopReason === "aborted" || output.stopReason === "error") {
 				throw new Error(output.errorMessage || "An unknown error occurred");
 			}
@@ -835,6 +868,7 @@ function createClient(
 	interleavedThinking: boolean,
 	useFineGrainedToolStreamingBeta: boolean,
 	optionsHeaders?: ProviderHeaders,
+	fetch?: typeof globalThis.fetch,
 	dynamicHeaders?: Record<string, string>,
 	sessionId?: string,
 ): { client: Anthropic; isOAuthToken: boolean } {
@@ -855,7 +889,9 @@ function createClient(
 			authToken: apiKey ?? null,
 			baseURL: model.baseUrl,
 			dangerouslyAllowBrowser: true,
-			defaultHeaders: mergeHeaders(
+			fetch,
+			defaultHeaders: mergeClientHeaders(
+				model,
 				{
 					accept: "application/json",
 					"anthropic-dangerous-direct-browser-access": "true",
@@ -877,7 +913,9 @@ function createClient(
 			authToken: apiKey,
 			baseURL: model.baseUrl,
 			dangerouslyAllowBrowser: true,
-			defaultHeaders: mergeHeaders(
+			fetch,
+			defaultHeaders: mergeClientHeaders(
+				model,
 				{
 					accept: "application/json",
 					"anthropic-dangerous-direct-browser-access": "true",
@@ -896,7 +934,8 @@ function createClient(
 	// API key or header-owned auth.
 	const sessionAffinityHeaders: ProviderHeaders =
 		sessionId && getAnthropicCompat(model).sendSessionAffinityHeaders ? { "x-session-affinity": sessionId } : {};
-	const defaultHeaders = mergeHeaders(
+	const defaultHeaders = mergeClientHeaders(
+		model,
 		{
 			accept: "application/json",
 			"anthropic-dangerous-direct-browser-access": "true",
@@ -911,6 +950,7 @@ function createClient(
 		authToken: null,
 		baseURL: model.baseUrl,
 		dangerouslyAllowBrowser: true,
+		fetch,
 		defaultHeaders,
 	});
 
@@ -986,14 +1026,24 @@ function buildParams(
 	}
 
 	if (immediateTools.length > 0 || deferredTools.length > 0) {
+		const immediateJsonTools = requireJsonTools(immediateTools, "Anthropic Messages") ?? [];
+		const deferredJsonTools = requireJsonTools(deferredTools, "Anthropic Messages") ?? [];
 		params.tools = [
 			...convertTools(
-				immediateTools,
+				immediateJsonTools,
 				isOAuthToken,
 				compat.supportsEagerToolInputStreaming,
+				compat.supportsStrictTools,
 				compat.supportsCacheControlOnTools ? cacheControl : undefined,
 			),
-			...convertTools(deferredTools, isOAuthToken, compat.supportsEagerToolInputStreaming, undefined, true),
+			...convertTools(
+				deferredJsonTools,
+				isOAuthToken,
+				compat.supportsEagerToolInputStreaming,
+				compat.supportsStrictTools,
+				undefined,
+				true,
+			),
 		];
 	}
 
@@ -1184,11 +1234,12 @@ function convertMessages(
 						});
 					}
 				} else if (block.type === "toolCall") {
+					const toolCall = requireJsonToolCall(block, "Anthropic Messages replay");
 					blocks.push({
 						type: "tool_use",
-						id: block.id,
-						name: isOAuthToken ? toClaudeCodeName(block.name) : block.name,
-						input: block.arguments ?? {},
+						id: toolCall.id,
+						name: isOAuthToken ? toClaudeCodeName(toolCall.name) : toolCall.name,
+						input: toolCall.arguments ?? {},
 					});
 				}
 			}
@@ -1258,26 +1309,38 @@ function shouldUseFineGrainedToolStreamingBeta(model: Model<"anthropic-messages"
 }
 
 function convertTools(
-	tools: Tool[],
+	tools: JsonTool[],
 	isOAuthToken: boolean,
 	supportsEagerToolInputStreaming: boolean,
+	supportsStrictTools: boolean,
 	cacheControl?: CacheControlEphemeral,
 	deferLoading = false,
 ): Anthropic.Messages.Tool[] {
 	if (!tools) return [];
 
 	return tools.map((tool, index) => {
-		const schema = tool.parameters as { properties?: unknown; required?: string[] };
+		const strict = resolveJsonSchemaStrictSampling(tool, supportsStrictTools);
+		const parameters = getJsonSchemaToolParameters(tool, strict);
+		const schema = parameters as { properties?: unknown; required?: string[] };
+		const legacyInputSchema = {
+			type: "object" as const,
+			properties: schema.properties ?? {},
+			required: schema.required ?? [],
+		};
+		const inputSchema =
+			strict === true
+				? {
+						...(parameters as Record<string, unknown>),
+						...legacyInputSchema,
+					}
+				: legacyInputSchema;
 
 		return {
 			name: isOAuthToken ? toClaudeCodeName(tool.name) : tool.name,
 			description: tool.description,
 			...(supportsEagerToolInputStreaming ? { eager_input_streaming: true } : {}),
-			input_schema: {
-				type: "object",
-				properties: schema.properties ?? {},
-				required: schema.required ?? [],
-			},
+			...(strict === true ? { strict: true } : {}),
+			input_schema: inputSchema,
 			...(deferLoading ? { defer_loading: true } : {}),
 			...(cacheControl && index === tools.length - 1 ? { cache_control: cacheControl } : {}),
 		};
@@ -1305,7 +1368,7 @@ function mapStopReason(
 		case "stop_sequence":
 			return { stopReason: "stop" }; // We don't supply stop sequences, so this should never happen
 		case "sensitive": // Content flagged by safety filters (not yet in SDK types)
-			return { stopReason: "error" };
+			return { stopReason: "error", errorMessage: "Provider stopped with: sensitive" };
 		default:
 			// Handle unknown stop reasons gracefully (API may add new values)
 			throw new Error(`Unhandled stop reason: ${reason}`);

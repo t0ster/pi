@@ -22,6 +22,7 @@ import type {
 	ThinkingLevel,
 	ToolCall,
 } from "../types.ts";
+import { isJsonToolCall } from "../types.ts";
 import { appendAssistantMessageDiagnostic, createAssistantMessageDiagnostic } from "../utils/diagnostics.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord, providerHeadersToRecord } from "../utils/headers.ts";
@@ -63,7 +64,13 @@ export type PiMessagesEvent =
 			contentSignature?: string;
 			redacted?: boolean;
 	  }
-	| { type: "toolcall_start"; contentIndex: number; id: string; toolName: string }
+	| {
+			type: "toolcall_start";
+			contentIndex: number;
+			id: string;
+			toolName: string;
+			inputType?: ToolCall["inputType"];
+	  }
 	| { type: "toolcall_delta"; contentIndex: number; delta: string }
 	| { type: "toolcall_end"; contentIndex: number; toolCall: ToolCall }
 	| {
@@ -103,14 +110,11 @@ export class PiMessagesResponseError extends Error {
 	}
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function parsePiMessagesErrorBody(body: string): PiMessagesErrorBody | undefined {
 	try {
-		const parsed = JSON.parse(body) as unknown;
-		return isRecord(parsed) && isRecord(parsed.error) ? (parsed as PiMessagesErrorBody) : undefined;
+		const parsed = JSON.parse(body) as PiMessagesErrorBody | null;
+		const error = parsed?.error;
+		return parsed && typeof error === "object" && error !== null && !Array.isArray(error) ? parsed : undefined;
 	} catch {
 		return undefined;
 	}
@@ -184,10 +188,10 @@ function createEventConverter(model: Model<"pi-messages">) {
 		provider: model.provider,
 		model: model.id,
 		usage: createEmptyUsage(),
-		stopReason: "stop",
+		stopReason: "pending",
 		timestamp: Date.now(),
 	};
-	const toolJson = new Map<number, string>();
+	const toolInputs = new Map<number, string>();
 
 	return (event: PiMessagesEvent): AssistantMessageEvent => {
 		switch (event.type) {
@@ -236,30 +240,51 @@ function createEventConverter(model: Model<"pi-messages">) {
 				});
 				break;
 			case "toolcall_start":
-				partial.content[event.contentIndex] = {
-					type: "toolCall",
-					id: event.id,
-					name: event.toolName,
-					arguments: {},
-				};
-				toolJson.set(event.contentIndex, "");
+				partial.content[event.contentIndex] =
+					event.inputType === "freeform"
+						? {
+								type: "toolCall",
+								id: event.id,
+								name: event.toolName,
+								inputType: "freeform",
+								input: "",
+							}
+						: {
+								type: "toolCall",
+								id: event.id,
+								name: event.toolName,
+								inputType: "json",
+								arguments: {},
+							};
+				toolInputs.set(event.contentIndex, "");
 				break;
 			case "toolcall_delta": {
-				const json = `${toolJson.get(event.contentIndex) ?? ""}${event.delta}`;
-				toolJson.set(event.contentIndex, json);
-				(partial.content[event.contentIndex] as ToolCall).arguments =
-					parseStreamingJson<ToolCall["arguments"]>(json);
+				const input = `${toolInputs.get(event.contentIndex) ?? ""}${event.delta}`;
+				toolInputs.set(event.contentIndex, input);
+				const toolCall = partial.content[event.contentIndex] as ToolCall;
+				if (isJsonToolCall(toolCall)) {
+					toolCall.arguments = parseStreamingJson<Record<string, unknown>>(input);
+				} else {
+					toolCall.input = input;
+				}
 				break;
 			}
-			case "toolcall_end":
-				Object.assign(partial.content[event.contentIndex]!, event.toolCall);
-				toolJson.delete(event.contentIndex);
+			case "toolcall_end": {
+				const toolCall = partial.content[event.contentIndex] as ToolCall;
+				if (event.toolCall.inputType === "freeform") {
+					delete (toolCall as { arguments?: Record<string, unknown> }).arguments;
+				} else {
+					delete (toolCall as { input?: string }).input;
+				}
+				Object.assign(toolCall, event.toolCall);
+				toolInputs.delete(event.contentIndex);
 				return {
 					type: "toolcall_end",
 					contentIndex: event.contentIndex,
-					toolCall: partial.content[event.contentIndex] as ToolCall,
+					toolCall,
 					partial,
 				};
+			}
 		}
 
 		return { ...event, partial } as AssistantMessageEvent;
@@ -382,7 +407,7 @@ export const stream: StreamFunction<"pi-messages", PiMessagesOptions> = (
 				payload = nextPayload;
 			}
 
-			const response = await fetch(url, {
+			const response = await (options?.fetch ?? globalThis.fetch)(url, {
 				method: "POST",
 				headers: {
 					authorization: `Bearer ${apiKey}`,
