@@ -61,7 +61,7 @@ describe("google-shared convertMessages — signed empty blocks", () => {
 			model,
 			makeContext(model, [
 				{ type: "thinking", thinking: "", thinkingSignature: VALID_SIG },
-				{ type: "toolCall", id: "call_1", name: "bash", arguments: { command: "ls" } },
+				{ type: "toolCall", inputType: "json", id: "call_1", name: "bash", arguments: { command: "ls" } },
 			]),
 		);
 		const modelTurn = contents.find((c) => c.role === "model");
@@ -76,7 +76,7 @@ describe("google-shared convertMessages — signed empty blocks", () => {
 			model,
 			makeContext(model, [
 				{ type: "text", text: "", textSignature: VALID_SIG },
-				{ type: "toolCall", id: "call_1", name: "bash", arguments: { command: "ls" } },
+				{ type: "toolCall", inputType: "json", id: "call_1", name: "bash", arguments: { command: "ls" } },
 			]),
 		);
 		const modelTurn = contents.find((c) => c.role === "model");
@@ -91,7 +91,7 @@ describe("google-shared convertMessages — signed empty blocks", () => {
 			makeContext(model, [
 				{ type: "thinking", thinking: "" },
 				{ type: "text", text: "   " },
-				{ type: "toolCall", id: "call_1", name: "bash", arguments: { command: "ls" } },
+				{ type: "toolCall", inputType: "json", id: "call_1", name: "bash", arguments: { command: "ls" } },
 			]),
 		);
 		const modelTurn = contents.find((c) => c.role === "model");
@@ -106,7 +106,7 @@ describe("google-shared convertMessages — signed empty blocks", () => {
 			makeContext({ ...model, id: "other-model" }, [
 				{ type: "thinking", thinking: "", thinkingSignature: VALID_SIG },
 				{ type: "text", text: "", textSignature: VALID_SIG },
-				{ type: "toolCall", id: "call_1", name: "bash", arguments: { command: "ls" } },
+				{ type: "toolCall", inputType: "json", id: "call_1", name: "bash", arguments: { command: "ls" } },
 			]),
 		);
 		const modelTurn = contents.find((c) => c.role === "model");

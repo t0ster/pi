@@ -1286,7 +1286,7 @@ describe("agentLoop with AgentMessage", () => {
 	it("should stop after a blocked tool call when beforeToolCall sets terminate=true", async () => {
 		const toolSchema = Type.Object({ value: Type.String() });
 		let executed = false;
-		const tool: AgentTool<typeof toolSchema, { value: string }> = {
+		const tool: JsonAgentTool<typeof toolSchema, { value: string }> = {
 			name: "echo",
 			label: "Echo",
 			description: "Echo tool",
@@ -1318,7 +1318,15 @@ describe("agentLoop with AgentMessage", () => {
 				const message =
 					llmCalls === 1
 						? createAssistantMessage(
-								[{ type: "toolCall", id: "tool-1", name: "echo", arguments: { value: "hello" } }],
+								[
+									{
+										type: "toolCall",
+										inputType: "json",
+										id: "tool-1",
+										name: "echo",
+										arguments: { value: "hello" },
+									},
+								],
 								"toolUse",
 							)
 						: createAssistantMessage([{ type: "text", text: "should not run" }]);
@@ -1345,7 +1353,7 @@ describe("agentLoop with AgentMessage", () => {
 	it("should continue after a mixed batch with one terminating blocked call", async () => {
 		const toolSchema = Type.Object({ value: Type.String() });
 		const executed: string[] = [];
-		const tool: AgentTool<typeof toolSchema, { value: string }> = {
+		const tool: JsonAgentTool<typeof toolSchema, { value: string }> = {
 			name: "echo",
 			label: "Echo",
 			description: "Echo tool",
@@ -1382,8 +1390,20 @@ describe("agentLoop with AgentMessage", () => {
 					llmCalls === 1
 						? createAssistantMessage(
 								[
-									{ type: "toolCall", id: "tool-1", name: "echo", arguments: { value: "first" } },
-									{ type: "toolCall", id: "tool-2", name: "echo", arguments: { value: "second" } },
+									{
+										type: "toolCall",
+										inputType: "json",
+										id: "tool-1",
+										name: "echo",
+										arguments: { value: "first" },
+									},
+									{
+										type: "toolCall",
+										inputType: "json",
+										id: "tool-2",
+										name: "echo",
+										arguments: { value: "second" },
+									},
 								],
 								"toolUse",
 							)

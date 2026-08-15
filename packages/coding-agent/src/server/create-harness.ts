@@ -2,6 +2,7 @@ import {
 	AgentHarness,
 	type AgentHarnessOptions,
 	type AgentHarnessTool,
+	type AgentToolUpdateCallback,
 	createBashTool,
 	createEditTool,
 	createReadTool,
@@ -18,10 +19,10 @@ import { editToolSystemPromptContribution } from "../core/tools/edit.ts";
 import { readToolSystemPromptContribution } from "../core/tools/read.ts";
 import { writeToolSystemPromptContribution } from "../core/tools/write.ts";
 
-export interface CodingAgentHarnessTool extends HarnessTool {
+export type CodingAgentHarnessTool = HarnessTool & {
 	promptSnippet?: string;
 	promptGuidelines?: readonly string[];
-}
+};
 
 function createCodingAgentHarnessTool<TParameters extends TSchema, TDetails>(
 	tool: AgentHarnessTool<ExecutionToolContext, TParameters, TDetails>,
@@ -32,8 +33,12 @@ function createCodingAgentHarnessTool<TParameters extends TSchema, TDetails>(
 		...tool,
 		...prompt,
 		constrainedSampling: getExperimentalToolSampling(),
-		execute: (toolCallId, params, signal, onUpdate) =>
-			tool.execute(toolCallId, params as Static<TParameters>, signal, onUpdate, context),
+		execute: (
+			toolCallId: string,
+			params: unknown,
+			signal: AbortSignal | undefined,
+			onUpdate: AgentToolUpdateCallback<TDetails> | undefined,
+		) => tool.execute(toolCallId, params as Static<TParameters>, signal, onUpdate, context),
 	};
 }
 

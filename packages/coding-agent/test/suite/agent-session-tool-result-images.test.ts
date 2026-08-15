@@ -49,8 +49,8 @@ const screenshotTool: AgentTool = {
 	parameters: Type.Object({}),
 	execute: async () => ({
 		content: [
-			{ type: "text", text: "captured" },
-			{ type: "image", data: OVERSIZED_PNG_BASE64, mimeType: "image/png" },
+			{ type: "text" as const, text: "captured" },
+			{ type: "image" as const, data: OVERSIZED_PNG_BASE64, mimeType: "image/png" },
 		],
 		details: {},
 	}),

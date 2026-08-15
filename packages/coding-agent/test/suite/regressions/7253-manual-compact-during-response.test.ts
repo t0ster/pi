@@ -10,7 +10,7 @@ function createNoopTool(): AgentTool {
 		label: "No-op",
 		description: "Return immediately",
 		parameters: Type.Object({}),
-		execute: async () => ({ content: [{ type: "text", text: "done" }], details: {} }),
+		execute: async () => ({ content: [{ type: "text" as const, text: "done" }], details: {} }),
 	};
 }
 

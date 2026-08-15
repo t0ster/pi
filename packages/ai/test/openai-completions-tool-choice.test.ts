@@ -685,6 +685,7 @@ describe("openai-completions tool_choice", () => {
 		expect(response.content).toEqual([
 			{
 				type: "toolCall",
+				inputType: "json",
 				id: "call_1",
 				name: "read",
 				arguments: { path: "README.md" },

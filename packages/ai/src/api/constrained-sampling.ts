@@ -115,7 +115,7 @@ function makeJsonSchemaNodeStrict(schema: unknown): void {
 }
 
 /** Convert a tool schema to the strict subset expected by provider constrained sampling. */
-export function makeStrictJsonSchema(schema: Tool["parameters"]): Record<string, unknown> {
+export function makeStrictJsonSchema(schema: JsonTool["parameters"]): Record<string, unknown> {
 	const cloned: unknown = structuredClone(schema);
 	if (!isJsonSchemaObject(cloned)) {
 		throw new UnsupportedStrictJsonSchemaError("root schema must have type object");
@@ -127,8 +127,8 @@ export function makeStrictJsonSchema(schema: Tool["parameters"]): Record<string,
 	return cloned;
 }
 
-export function getJsonSchemaToolParameters(tool: Tool, strict: boolean | undefined): Tool["parameters"] {
-	return (strict === true ? makeStrictJsonSchema(tool.parameters) : tool.parameters) as Tool["parameters"];
+export function getJsonSchemaToolParameters(tool: JsonTool, strict: boolean | undefined): JsonTool["parameters"] {
+	return (strict === true ? makeStrictJsonSchema(tool.parameters) : tool.parameters) as JsonTool["parameters"];
 }
 
 export interface GrammarConstrainedSampling {

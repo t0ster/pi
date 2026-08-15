@@ -168,6 +168,7 @@ describe("OpenAI Responses tool-call namespaces", () => {
 		output.content.push(
 			{
 				type: "toolCall",
+				inputType: "json",
 				id: "call_function|fc_test",
 				name: "lookup",
 				arguments: { value: "hello" },
@@ -175,6 +176,7 @@ describe("OpenAI Responses tool-call namespaces", () => {
 			},
 			{
 				type: "toolCall",
+				inputType: "json",
 				id: "call_custom|ctc_test",
 				name: "query",
 				arguments: { input: "hello" },
@@ -210,6 +212,7 @@ describe("OpenAI Responses tool-call namespaces", () => {
 		const output = createOutput();
 		output.content.push({
 			type: "toolCall",
+			inputType: "json",
 			id: "call_test|fc_test",
 			name: "lookup",
 			arguments: { value: "hello" },

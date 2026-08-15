@@ -97,7 +97,20 @@ describe("pi-ai protocol bridge", () => {
 			content: [
 				{ type: "text", text: "hello" },
 				{ type: "thinking", thinking: "hmm", redacted: false },
-				{ type: "toolCall", id: "call-1", name: "read", arguments: { path: "README.md" } },
+				{
+					type: "toolCall",
+					inputType: "json",
+					id: "call-1",
+					name: "read",
+					arguments: { path: "README.md" },
+				},
+				{
+					type: "toolCall",
+					inputType: "freeform",
+					id: "call-2",
+					name: "apply_patch",
+					input: "*** Begin Patch\n*** End Patch",
+				},
 			],
 			api: "test-api",
 			provider: "test-provider",
@@ -126,6 +139,12 @@ describe("pi-ai protocol bridge", () => {
 			{ type: "text", text: "hello" },
 			{ type: "thinking", thinking: "hmm", redacted: false },
 			{ type: "toolCall", toolCallId: "call-1", toolName: "read", input: { path: "README.md" } },
+			{
+				type: "toolCall",
+				toolCallId: "call-2",
+				toolName: "apply_patch",
+				input: "*** Begin Patch\n*** End Patch",
+			},
 		]);
 		assertValidServerPayload(result);
 	});
@@ -149,6 +168,7 @@ describe("pi-ai protocol bridge", () => {
 		} satisfies ToolResultMessage;
 		const call = {
 			type: "toolCall",
+			inputType: "json",
 			id: "call-1",
 			name: "read",
 			arguments: { path: "README.md" },
@@ -178,6 +198,7 @@ describe("pi-ai protocol bridge", () => {
 	test("rejects tool results associated with a different call", () => {
 		const call = {
 			type: "toolCall",
+			inputType: "json",
 			id: "call-1",
 			name: "read",
 			arguments: { path: "README.md" },
@@ -259,7 +280,7 @@ describe("pi-ai protocol bridge", () => {
 	test("rejects invalid source identifiers and timestamps", () => {
 		const message = {
 			role: "assistant",
-			content: [{ type: "toolCall", id: "", name: "read", arguments: {} }],
+			content: [{ type: "toolCall", inputType: "json", id: "", name: "read", arguments: {} }],
 			api: "test-api",
 			provider: "test-provider",
 			model: "model-1",

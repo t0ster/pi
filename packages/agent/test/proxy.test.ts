@@ -39,6 +39,7 @@ describe("streamProxy", () => {
 				contentIndex: 0,
 				toolCall: {
 					type: "toolCall",
+					inputType: "json",
 					id: "call_test|fc_test",
 					name: "lookup",
 					arguments: { value: "hello" },

@@ -80,7 +80,13 @@ describe("JSONL v4 per-session storage", () => {
 						role: "assistant",
 						content: [
 							{ type: "text", text: "I'll inspect it." },
-							{ type: "toolCall", id: "call-1", name: "read", arguments: { path: "README.md" } },
+							{
+								type: "toolCall",
+								inputType: "json",
+								id: "call-1",
+								name: "read",
+								arguments: { path: "README.md" },
+							},
 						],
 						api: "anthropic-messages",
 						provider: "anthropic",

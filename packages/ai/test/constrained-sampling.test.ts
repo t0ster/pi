@@ -146,7 +146,7 @@ describe("constrained tool sampling", () => {
 	});
 
 	it("falls back or rejects schemas that cannot be safely converted", () => {
-		const cases: Array<{ parameters: Tool["parameters"]; error: string }> = [
+		const cases: Array<{ parameters: JsonTool["parameters"]; error: string }> = [
 			{
 				parameters: Type.Object({ metadata: Type.Object({}, { additionalProperties: Type.String() }) }),
 				error: "additionalProperties is unsupported",
@@ -166,13 +166,13 @@ describe("constrained tool sampling", () => {
 					type: "object",
 					properties: { child: { $ref: "https://example.com/child.json" } },
 					required: ["child"],
-				} as Tool["parameters"],
+				} as JsonTool["parameters"],
 				error: "$ref schemas are unsupported",
 			},
 		];
 
 		for (const { parameters, error } of cases) {
-			const tool: Tool = {
+			const tool: JsonTool = {
 				...makeTool(),
 				parameters,
 				constrainedSampling: { type: "json_schema", strict: "prefer" },

@@ -421,7 +421,7 @@ describe("deferred tools", () => {
 		const context = makeContext([makeTool("base_tool"), makeTool("late_tool")]);
 		const lateCall: AssistantMessage = {
 			...makeAssistantToolCall(),
-			content: [{ type: "toolCall", id: "call_late|fc_late", name: "late_tool", arguments: {} }],
+			content: [{ type: "toolCall", inputType: "json", id: "call_late|fc_late", name: "late_tool", arguments: {} }],
 			api: "openai-responses",
 			provider: "openai",
 			model: "gpt-5.4",

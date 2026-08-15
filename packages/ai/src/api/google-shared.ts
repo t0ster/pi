@@ -3,16 +3,7 @@
  */
 
 import { type Content, FinishReason, FunctionCallingConfigMode, type Part } from "@google/genai";
-import type {
-	Context,
-	ImageContent,
-	JsonTool,
-	Model,
-	StopReason,
-	StreamOptions,
-	TextContent,
-	Tool,
-} from "../types.ts";
+import type { Context, ImageContent, JsonTool, Model, StopReason, StreamOptions, TextContent } from "../types.ts";
 import { requireJsonToolCall } from "../types.ts";
 import { retryProviderRequest } from "../utils/provider-retry.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";

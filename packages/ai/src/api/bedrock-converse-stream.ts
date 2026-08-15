@@ -47,8 +47,8 @@ import type {
 	ThinkingLevel,
 	ToolResultMessage,
 } from "../types.ts";
-import { appendAssistantMessageDiagnostic } from "../utils/diagnostics.ts";
 import { requireJsonToolCall, requireJsonTools } from "../types.ts";
+import { appendAssistantMessageDiagnostic } from "../utils/diagnostics.ts";
 import { normalizeProviderError } from "../utils/error-body.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { providerHeadersToRecord } from "../utils/headers.ts";

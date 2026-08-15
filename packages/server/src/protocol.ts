@@ -4,7 +4,10 @@ import {
 	type Usage as AiUsage,
 	type Api,
 	type AssistantMessage,
+	type FreeformToolCall,
 	getSupportedThinkingLevels,
+	isJsonToolCall,
+	type JsonToolCall,
 	type Model,
 	type ModelThinkingLevel,
 	type ToolCall,
@@ -43,8 +46,11 @@ type _AiThinkingContentFieldsAccountedFor = Assert<
 	>
 >;
 type _AiImageContentFieldsAccountedFor = Assert<ExactKeys<AiImageContent, "type" | "data" | "mimeType">>;
-type _AiToolCallFieldsAccountedFor = Assert<
-	ExactKeys<ToolCall, "type" | "id" | "name" | "arguments" | "thoughtSignature" | "namespace">
+type _AiJsonToolCallFieldsAccountedFor = Assert<
+	ExactKeys<JsonToolCall, "type" | "id" | "name" | "inputType" | "arguments" | "thoughtSignature" | "namespace">
+>;
+type _AiFreeformToolCallFieldsAccountedFor = Assert<
+	ExactKeys<FreeformToolCall, "type" | "id" | "name" | "inputType" | "input" | "thoughtSignature" | "namespace">
 >;
 type _AiUsageFieldsAccountedFor = Assert<
 	ExactKeys<
@@ -270,7 +276,7 @@ function toProtocolAssistantContent(message: AssistantMessage): AssistantTranscr
 					type: "toolCall",
 					toolCallId: identifier(part.id, "Tool call id"),
 					toolName: identifier(part.name, "Tool call name"),
-					input: toProtocolJsonValue(part.arguments),
+					input: toProtocolJsonValue(isJsonToolCall(part) ? part.arguments : part.input),
 				};
 			default: {
 				const exhaustive: never = part;
@@ -370,7 +376,7 @@ export function toProtocolToolResultMessage(
 		role: "tool",
 		toolCallId: callId,
 		toolName: callName,
-		input: toProtocolJsonValue(options.call.arguments),
+		input: toProtocolJsonValue(isJsonToolCall(options.call) ? options.call.arguments : options.call.input),
 		content: toProtocolToolContent(message.content),
 		...(details === undefined ? {} : { details }),
 		...(usage ? { usage } : {}),

@@ -308,7 +308,10 @@ function expectCorruption(input: RecordLogSlice, reason: RecordLogCorruptionReas
 const assistantToolsEntry = persistedEntry(
 	messageTarget(
 		"assistant-tools",
-		assistantMessage([{ type: "toolCall", id: "call-1", name: "tool-1", arguments: {} }], "toolUse"),
+		assistantMessage(
+			[{ type: "toolCall", inputType: "json", id: "call-1", name: "tool-1", arguments: {} }],
+			"toolUse",
+		),
 	),
 	3,
 );
@@ -479,7 +482,7 @@ function validPrefixes(trace: string, actions: readonly DurableAction[]): { name
 const promptTarget = messageTarget("prompt-1", userMessage("fix the bug"));
 const assistantToolTarget = messageTarget(
 	"assistant-tools",
-	assistantMessage([{ type: "toolCall", id: "call-1", name: "tool-1", arguments: {} }], "toolUse"),
+	assistantMessage([{ type: "toolCall", inputType: "json", id: "call-1", name: "tool-1", arguments: {} }], "toolUse"),
 );
 const toolResultTarget = messageTarget("tool-result-1", toolResultMessage());
 const assistantFinalTarget = messageTarget("assistant-final", assistantMessage([{ type: "text", text: "done" }]));
@@ -928,8 +931,8 @@ describe("lane-state reduction", () => {
 				"assistant-two-tools",
 				assistantMessage(
 					[
-						{ type: "toolCall", id: "call-1", name: "tool-1", arguments: {} },
-						{ type: "toolCall", id: "call-2", name: "tool-2", arguments: {} },
+						{ type: "toolCall", inputType: "json", id: "call-1", name: "tool-1", arguments: {} },
+						{ type: "toolCall", inputType: "json", id: "call-2", name: "tool-2", arguments: {} },
 					],
 					"toolUse",
 				),
@@ -969,7 +972,10 @@ describe("lane-state reduction", () => {
 		const truncated = persistedEntry(
 			messageTarget(
 				"assistant-truncated",
-				assistantMessage([{ type: "toolCall", id: "call-1", name: "tool-1", arguments: {} }], "length"),
+				assistantMessage(
+					[{ type: "toolCall", inputType: "json", id: "call-1", name: "tool-1", arguments: {} }],
+					"length",
+				),
 			),
 			3,
 		);

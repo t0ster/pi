@@ -101,7 +101,7 @@ describe("validateToolArguments", () => {
 	});
 
 	it("treats null as omission for optional non-nullable properties", () => {
-		const tool: Tool = {
+		const tool: JsonTool = {
 			name: "echo",
 			description: "Echo tool",
 			parameters: Type.Object({
@@ -111,8 +111,9 @@ describe("validateToolArguments", () => {
 				metadata: Type.Object({ enabled: Type.Optional(Type.Boolean()) }),
 			}),
 		};
-		const toolCall: ToolCall = {
+		const toolCall: JsonToolCall = {
 			type: "toolCall",
+			inputType: "json",
 			id: "tool-1",
 			name: "echo",
 			arguments: { path: "file.txt", offset: null, nullable: null, metadata: { enabled: null } },
@@ -126,17 +127,18 @@ describe("validateToolArguments", () => {
 	});
 
 	it("preserves optional nulls whose referenced schema is nullable", () => {
-		const tool: Tool = {
+		const tool: JsonTool = {
 			name: "echo",
 			description: "Echo tool",
 			parameters: {
 				type: "object",
 				properties: { value: { $ref: "#/$defs/value" } },
 				$defs: { value: { anyOf: [{ type: "number" }, { type: "null" }] } },
-			} as Tool["parameters"],
+			} as JsonTool["parameters"],
 		};
-		const toolCall: ToolCall = {
+		const toolCall: JsonToolCall = {
 			type: "toolCall",
+			inputType: "json",
 			id: "tool-1",
 			name: "echo",
 			arguments: { value: null },
@@ -146,15 +148,16 @@ describe("validateToolArguments", () => {
 	});
 
 	it("preserves a value that already matches a nullable union arm", () => {
-		const tool: Tool = {
+		const tool: JsonTool = {
 			name: "echo",
 			description: "Echo tool",
 			parameters: Type.Object({
 				value: Type.Union([Type.Number(), Type.Null()]),
 			}),
 		};
-		const toolCall: ToolCall = {
+		const toolCall: JsonToolCall = {
 			type: "toolCall",
+			inputType: "json",
 			id: "tool-1",
 			name: "echo",
 			arguments: { value: null },
@@ -165,7 +168,7 @@ describe("validateToolArguments", () => {
 
 	it("preserves a value that already matches a oneOf nullable union arm", () => {
 		const { tool, toolCall } = createToolCallWithPlainSchema(
-			{ oneOf: [{ type: "number" }, { type: "null" }] } as Tool["parameters"],
+			{ oneOf: [{ type: "number" }, { type: "null" }] } as JsonTool["parameters"],
 			null,
 		);
 
@@ -174,7 +177,7 @@ describe("validateToolArguments", () => {
 
 	it("still coerces nullable unions when the original value does not match any arm", () => {
 		const { tool, toolCall } = createToolCallWithPlainSchema(
-			{ anyOf: [{ type: "number" }, { type: "null" }] } as Tool["parameters"],
+			{ anyOf: [{ type: "number" }, { type: "null" }] } as JsonTool["parameters"],
 			"42",
 		);
 
@@ -183,7 +186,7 @@ describe("validateToolArguments", () => {
 
 	it("accepts null for nullable array schemas with items", () => {
 		const { tool, toolCall } = createToolCallWithPlainSchema(
-			{ type: ["array", "null"], items: { type: "string" } } as Tool["parameters"],
+			{ type: ["array", "null"], items: { type: "string" } } as JsonTool["parameters"],
 			null,
 		);
 		// The CSP test above selects TypeBox's process-wide interpreted fallback, so exercise the generated validator explicitly.

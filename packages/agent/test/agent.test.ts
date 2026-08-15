@@ -740,7 +740,7 @@ describe("Agent", () => {
 
 	it("forwards shouldStopAfterTurn through AgentOptions", async () => {
 		const schema = Type.Object({});
-		const tool: AgentTool<typeof schema> = {
+		const tool: JsonAgentTool<typeof schema> = {
 			name: "noop",
 			label: "Noop",
 			description: "Noop tool",
@@ -763,7 +763,7 @@ describe("Agent", () => {
 				queueMicrotask(() => {
 					if (requestCount === 1) {
 						const message = createAssistantToolUseMessage([
-							{ type: "toolCall", id: "tool-1", name: "noop", arguments: {} },
+							{ type: "toolCall", inputType: "json", id: "tool-1", name: "noop", arguments: {} },
 						]);
 						stream.push({ type: "done", reason: "toolUse", message });
 						return;

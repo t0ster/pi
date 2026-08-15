@@ -43,7 +43,7 @@ function createPromptTool(name: string, promptSnippet?: string, promptGuidelines
 		label: name,
 		description: `${name} description`,
 		parameters: Type.Object({}),
-		execute: async () => ({ content: [{ type: "text", text: "ok" }], details: undefined }),
+		execute: async () => ({ content: [{ type: "text" as const, text: "ok" }], details: undefined }),
 		promptSnippet,
 		promptGuidelines,
 	};
@@ -110,7 +110,7 @@ describe("coding-agent Harness construction", () => {
 			label: "inspect",
 			description: "Inspect the configured service",
 			parameters: Type.Object({}),
-			execute: async () => ({ content: [{ type: "text", text: "ok" }], details: undefined }),
+			execute: async () => ({ content: [{ type: "text" as const, text: "ok" }], details: undefined }),
 		};
 		const created = await createCodingAgentHarness({
 			session,
@@ -147,6 +147,7 @@ describe("coding-agent Harness construction", () => {
 		try {
 			const bash = (await created.harness.getTools()).find((tool) => tool.name === "bash");
 			if (!bash) throw new Error("Expected the default bash tool");
+			if (!("parameters" in bash)) throw new Error("Expected the default bash tool to use JSON input");
 
 			const result = await bash.execute("bash-call", {
 				command: `printf '%s' "$PI_SESSION_ID|$PI_SESSION_FILE|$PI_PROVIDER|$PI_MODEL|$PI_REASONING_LEVEL|$PI_CODING_AGENT"`,
@@ -189,6 +190,7 @@ describe("coding-agent Harness construction", () => {
 			await created.harness.setThinkingLevel("low");
 			const bash = (await created.harness.getTools()).find((tool) => tool.name === "bash");
 			if (!bash) throw new Error("Expected the default bash tool");
+			if (!("parameters" in bash)) throw new Error("Expected the default bash tool to use JSON input");
 
 			const result = await bash.execute("bash-call", {
 				command: `printf '%s:%s' "\${PI_SESSION_FILE+x}" "$PI_SESSION_ID|$PI_PROVIDER|$PI_MODEL|$PI_REASONING_LEVEL|$PI_CODING_AGENT"`,
@@ -257,7 +259,7 @@ describe("coding-agent Harness construction", () => {
 					label: "inspect",
 					description: "Inspect the configured service",
 					parameters: Type.Object({}),
-					execute: async () => ({ content: [{ type: "text", text: "ok" }], details: undefined }),
+					execute: async () => ({ content: [{ type: "text" as const, text: "ok" }], details: undefined }),
 					promptSnippet: "  Inspect\nthe   configured service  ",
 					promptGuidelines: ["Use inspect for service diagnostics."],
 				};

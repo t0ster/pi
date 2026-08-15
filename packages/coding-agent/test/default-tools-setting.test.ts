@@ -80,7 +80,7 @@ describe("defaultTools setting", () => {
 						label: "SDK Tool",
 						description: "SDK custom tool",
 						parameters: Type.Object({}),
-						execute: async () => ({ content: [{ type: "text", text: "ok" }], details: {} }),
+						execute: async () => ({ content: [{ type: "text" as const, text: "ok" }], details: {} }),
 					},
 				],
 			},

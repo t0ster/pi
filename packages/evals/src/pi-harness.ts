@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
-import { contentText } from "@earendil-works/pi-ai";
+import { contentText, isJsonToolCall } from "@earendil-works/pi-ai";
 import {
 	type AgentSession,
 	type CreateAgentSessionOptions,
@@ -69,7 +69,7 @@ function toTranscriptEvents(messages: AgentSession["messages"]): TranscriptEvent
 						type: "tool_call",
 						id: part.id,
 						name: part.name,
-						arguments: normalizeRecord(part.arguments),
+						arguments: isJsonToolCall(part) ? normalizeRecord(part.arguments) : { input: part.input },
 					});
 				}
 			}
